@@ -2,221 +2,324 @@
  * src/domain/entities/Recipe.ts
  *
  * The Recipe aggregate root.
- * Owns and enforces all invariants related to a recipe.
+ * Owns RecipeIngredient and RecipeStep as embedded children; outside callers
+ * never instantiate or mutate them directly — every mutation goes through the
+ * root and is constrained by aggregate invariants:
  *
- * Rules (enforced in constructor / mutators):
- *  - title must be 3–120 characters
- *  - servings must be >= 1
- *  - prepTimeMin and cookTimeMin must be >= 0
- *  - at least one step is required before a recipe can be "published"
+ *   - cookTimeMinutes must be an integer >= 1
+ *   - name must be a non-empty string
+ *   - ingredient.order values must form a contiguous 1..N permutation
+ *   - step.order values must form a contiguous 1..N permutation
  *
  * Imports: domain only — zero third-party dependencies.
  */
 
-import type { DifficultyLevel } from '../value-objects/DifficultyLevel';
-import type { RecipeIngredient } from './RecipeIngredient';
-import type { RecipeStep } from './RecipeStep';
 import { DomainError } from '../errors/DomainError';
+import { DifficultyLevel } from '../value-objects/DifficultyLevel';
+import { Slug } from '../value-objects/Slug';
+import { RecipeIngredient } from './RecipeIngredient';
+import { RecipeStep } from './RecipeStep';
 
 export interface RecipeProps {
   id: string;
-  title: string;
+  slug: Slug;
+  name: string;
   description: string | null;
-  servings: number;
-  prepTimeMin: number;
-  cookTimeMin: number;
+  cookTimeMinutes: number;
   difficulty: DifficultyLevel;
-  isPublic: boolean;
-  authorId: string;
+  tags: string[];
+  imageUrl: string | null;
   ingredients: RecipeIngredient[];
   steps: RecipeStep[];
-  tags: string[];
-  createdAt: Date;
-  updatedAt: Date;
+}
+
+export interface AddIngredientInput {
+  id: string;
+  name: string;
+  quantity: number;
+  unit: string;
+}
+
+export interface AddStepInput {
+  id: string;
+  instruction: string;
 }
 
 export class Recipe {
   private readonly _id: string;
-  private _title: string;
+  private _slug: Slug;
+  private _name: string;
   private _description: string | null;
-  private _servings: number;
-  private _prepTimeMin: number;
-  private _cookTimeMin: number;
+  private _cookTimeMinutes: number;
   private _difficulty: DifficultyLevel;
-  private _isPublic: boolean;
-  private readonly _authorId: string;
+  private _tags: string[];
+  private _imageUrl: string | null;
   private _ingredients: RecipeIngredient[];
   private _steps: RecipeStep[];
-  private _tags: string[];
-  private readonly _createdAt: Date;
-  private _updatedAt: Date;
 
   private constructor(props: RecipeProps) {
-    Recipe.assertValidTitle(props.title);
-    Recipe.assertPositiveServings(props.servings);
-    Recipe.assertNonNegativeDuration('prepTimeMin', props.prepTimeMin);
-    Recipe.assertNonNegativeDuration('cookTimeMin', props.cookTimeMin);
-
     this._id = props.id;
-    this._title = props.title;
+    this._slug = props.slug;
+    this._name = props.name;
     this._description = props.description;
-    this._servings = props.servings;
-    this._prepTimeMin = props.prepTimeMin;
-    this._cookTimeMin = props.cookTimeMin;
+    this._cookTimeMinutes = props.cookTimeMinutes;
     this._difficulty = props.difficulty;
-    this._isPublic = props.isPublic;
-    this._authorId = props.authorId;
-    this._ingredients = [...props.ingredients];
-    this._steps = [...props.steps];
     this._tags = [...props.tags];
-    this._createdAt = props.createdAt;
-    this._updatedAt = props.updatedAt;
+    this._imageUrl = props.imageUrl;
+    this._ingredients = [...props.ingredients].sort((a, b) => a.order - b.order);
+    this._steps = [...props.steps].sort((a, b) => a.order - b.order);
   }
 
-  // ── Factory ──────────────────────────────────────────────────────────────
+  // ── Factory ────────────────────────────────────────────────────────────────
 
   static create(props: RecipeProps): Recipe {
+    Recipe.assertValidName(props.name);
+    Recipe.assertValidCookTime(props.cookTimeMinutes);
+    Recipe.assertContiguousOrder('ingredients', props.ingredients);
+    Recipe.assertContiguousOrder('steps', props.steps);
+    Recipe.assertChildrenBelongToRecipe(props.id, props.ingredients, props.steps);
     return new Recipe(props);
   }
 
-  // ── Getters ──────────────────────────────────────────────────────────────
+  // ── Getters ────────────────────────────────────────────────────────────────
 
   get id(): string {
     return this._id;
   }
-
-  get title(): string {
-    return this._title;
+  get slug(): Slug {
+    return this._slug;
   }
-
+  get name(): string {
+    return this._name;
+  }
   get description(): string | null {
     return this._description;
   }
-
-  get servings(): number {
-    return this._servings;
+  get cookTimeMinutes(): number {
+    return this._cookTimeMinutes;
   }
-
-  get prepTimeMin(): number {
-    return this._prepTimeMin;
-  }
-
-  get cookTimeMin(): number {
-    return this._cookTimeMin;
-  }
-
-  get totalTimeMin(): number {
-    return this._prepTimeMin + this._cookTimeMin;
-  }
-
   get difficulty(): DifficultyLevel {
     return this._difficulty;
   }
-
-  get isPublic(): boolean {
-    return this._isPublic;
+  get tags(): ReadonlyArray<string> {
+    return this._tags;
   }
-
-  get authorId(): string {
-    return this._authorId;
+  get imageUrl(): string | null {
+    return this._imageUrl;
   }
-
   get ingredients(): ReadonlyArray<RecipeIngredient> {
     return this._ingredients;
   }
-
   get steps(): ReadonlyArray<RecipeStep> {
     return this._steps;
   }
 
-  get tags(): ReadonlyArray<string> {
-    return this._tags;
-  }
+  // ── Recipe-level mutators ─────────────────────────────────────────────────
 
-  get createdAt(): Date {
-    return this._createdAt;
-  }
-
-  get updatedAt(): Date {
-    return this._updatedAt;
-  }
-
-  // ── Domain Mutators ──────────────────────────────────────────────────────
-
-  updateTitle(title: string): void {
-    Recipe.assertValidTitle(title);
-    this._title = title;
-    this.touch();
+  rename(name: string): void {
+    Recipe.assertValidName(name);
+    this._name = name;
   }
 
   updateDescription(description: string | null): void {
     this._description = description;
-    this.touch();
   }
 
-  updateServings(servings: number): void {
-    Recipe.assertPositiveServings(servings);
-    this._servings = servings;
-    this.touch();
-  }
-
-  updateTimes(prepTimeMin: number, cookTimeMin: number): void {
-    Recipe.assertNonNegativeDuration('prepTimeMin', prepTimeMin);
-    Recipe.assertNonNegativeDuration('cookTimeMin', cookTimeMin);
-    this._prepTimeMin = prepTimeMin;
-    this._cookTimeMin = cookTimeMin;
-    this.touch();
+  updateCookTimeMinutes(value: number): void {
+    Recipe.assertValidCookTime(value);
+    this._cookTimeMinutes = value;
   }
 
   updateDifficulty(difficulty: DifficultyLevel): void {
     this._difficulty = difficulty;
-    this.touch();
+  }
+
+  updateTags(tags: string[]): void {
+    this._tags = [...tags];
+  }
+
+  updateImageUrl(imageUrl: string | null): void {
+    this._imageUrl = imageUrl;
+  }
+
+  // ── Ingredient operations ─────────────────────────────────────────────────
+
+  /**
+   * Appends a new ingredient at the next contiguous order slot.
+   * Order is assigned by the aggregate (not by the caller) so contiguity holds.
+   */
+  addIngredient(input: AddIngredientInput): RecipeIngredient {
+    const nextOrder = this._ingredients.length + 1;
+    const ingredient = RecipeIngredient.create({
+      id: input.id,
+      recipeId: this._id,
+      name: input.name,
+      quantity: input.quantity,
+      unit: input.unit,
+      order: nextOrder,
+    });
+    this._ingredients = [...this._ingredients, ingredient];
+    Recipe.assertContiguousOrder('ingredients', this._ingredients);
+    return ingredient;
   }
 
   /**
-   * Publish the recipe so other users can discover it.
-   * At least one step must exist before publishing.
+   * Reorders ingredients to match the given id sequence (length == current count).
+   * Assigns order = 1..N in that order. Throws if the id set doesn't match.
    */
-  publish(): void {
-    if (this._steps.length === 0) {
+  reorderIngredients(orderedIds: string[]): void {
+    this._ingredients = Recipe.reorderChildren(
+      'ingredients',
+      this._ingredients,
+      orderedIds,
+      (child, newOrder) => child.withOrder(newOrder),
+    );
+    Recipe.assertContiguousOrder('ingredients', this._ingredients);
+  }
+
+  /** Removes the ingredient with the given id and renumbers the rest to 1..N. */
+  removeIngredient(id: string): void {
+    const idx = this._ingredients.findIndex((i) => i.id === id);
+    if (idx === -1) {
       throw new DomainError(
-        'A recipe must have at least one step before it can be published.',
+        `Cannot remove ingredient: no ingredient with id "${id}" in this recipe.`,
       );
     }
-    this._isPublic = true;
-    this.touch();
+    const filtered = this._ingredients.filter((i) => i.id !== id);
+    this._ingredients = filtered.map((child, i) => child.withOrder(i + 1));
+    Recipe.assertContiguousOrder('ingredients', this._ingredients);
   }
 
-  unpublish(): void {
-    this._isPublic = false;
-    this.touch();
+  // ── Step operations ───────────────────────────────────────────────────────
+
+  /**
+   * Appends a new step at the next contiguous order slot.
+   * Order is assigned by the aggregate (not by the caller).
+   */
+  addStep(input: AddStepInput): RecipeStep {
+    const nextOrder = this._steps.length + 1;
+    const step = RecipeStep.create({
+      id: input.id,
+      recipeId: this._id,
+      instruction: input.instruction,
+      order: nextOrder,
+    });
+    this._steps = [...this._steps, step];
+    Recipe.assertContiguousOrder('steps', this._steps);
+    return step;
   }
 
-  isOwnedBy(userId: string): boolean {
-    return this._authorId === userId;
+  /**
+   * Reorders steps to match the given id sequence (length == current count).
+   * Assigns order = 1..N in that order. Throws if the id set doesn't match.
+   */
+  reorderSteps(orderedIds: string[]): void {
+    this._steps = Recipe.reorderChildren(
+      'steps',
+      this._steps,
+      orderedIds,
+      (child, newOrder) => child.withOrder(newOrder),
+    );
+    Recipe.assertContiguousOrder('steps', this._steps);
   }
 
-  // ── Private helpers ──────────────────────────────────────────────────────
-
-  private touch(): void {
-    this._updatedAt = new Date();
+  /** Removes the step with the given id and renumbers the rest to 1..N. */
+  removeStep(id: string): void {
+    const idx = this._steps.findIndex((s) => s.id === id);
+    if (idx === -1) {
+      throw new DomainError(
+        `Cannot remove step: no step with id "${id}" in this recipe.`,
+      );
+    }
+    const filtered = this._steps.filter((s) => s.id !== id);
+    this._steps = filtered.map((child, i) => child.withOrder(i + 1));
+    Recipe.assertContiguousOrder('steps', this._steps);
   }
 
-  private static assertValidTitle(title: string): void {
-    if (title.trim().length < 3 || title.trim().length > 120) {
-      throw new DomainError('Recipe title must be between 3 and 120 characters.');
+  // ── Invariant guards ──────────────────────────────────────────────────────
+
+  private static assertValidName(name: string): void {
+    if (typeof name !== 'string' || name.trim().length === 0) {
+      throw new DomainError('Recipe.name must be a non-empty string.');
     }
   }
 
-  private static assertPositiveServings(servings: number): void {
-    if (!Number.isInteger(servings) || servings < 1) {
-      throw new DomainError('Servings must be a positive integer.');
+  private static assertValidCookTime(value: number): void {
+    if (!Number.isInteger(value) || value < 1) {
+      throw new DomainError(
+        `Recipe.cookTimeMinutes must be an integer >= 1, got ${value}.`,
+      );
     }
   }
 
-  private static assertNonNegativeDuration(field: string, value: number): void {
-    if (!Number.isInteger(value) || value < 0) {
-      throw new DomainError(`${field} must be a non-negative integer.`);
+  private static assertContiguousOrder(
+    label: 'ingredients' | 'steps',
+    children: ReadonlyArray<{ readonly order: number; readonly id: string }>,
+  ): void {
+    if (children.length === 0) return;
+    const orders = children.map((c) => c.order).sort((a, b) => a - b);
+    for (let i = 0; i < orders.length; i += 1) {
+      const expected = i + 1;
+      if (orders[i] !== expected) {
+        throw new DomainError(
+          `Recipe ${label} order must be contiguous starting at 1 (1,2,3,…). ` +
+            `Expected ${expected} at position ${i}, got ${orders[i]}. Full order set: [${orders.join(',')}].`,
+        );
+      }
     }
+  }
+
+  private static assertChildrenBelongToRecipe(
+    recipeId: string,
+    ingredients: ReadonlyArray<RecipeIngredient>,
+    steps: ReadonlyArray<RecipeStep>,
+  ): void {
+    for (const i of ingredients) {
+      if (i.recipeId !== recipeId) {
+        throw new DomainError(
+          `Ingredient "${i.id}" belongs to recipe "${i.recipeId}", not "${recipeId}".`,
+        );
+      }
+    }
+    for (const s of steps) {
+      if (s.recipeId !== recipeId) {
+        throw new DomainError(
+          `Step "${s.id}" belongs to recipe "${s.recipeId}", not "${recipeId}".`,
+        );
+      }
+    }
+  }
+
+  private static reorderChildren<C extends { readonly id: string }>(
+    label: 'ingredients' | 'steps',
+    current: ReadonlyArray<C>,
+    orderedIds: string[],
+    withOrder: (child: C, newOrder: number) => C,
+  ): C[] {
+    if (!Array.isArray(orderedIds)) {
+      throw new DomainError(`Recipe.reorder${label}: orderedIds must be an array.`);
+    }
+    if (orderedIds.length !== current.length) {
+      throw new DomainError(
+        `Recipe.reorder${label}: expected ${current.length} ids, got ${orderedIds.length}.`,
+      );
+    }
+    const knownIds = new Set(current.map((c) => c.id));
+    const seen = new Set<string>();
+    for (const id of orderedIds) {
+      if (!knownIds.has(id)) {
+        throw new DomainError(
+          `Recipe.reorder${label}: id "${id}" does not belong to this recipe.`,
+        );
+      }
+      if (seen.has(id)) {
+        throw new DomainError(
+          `Recipe.reorder${label}: id "${id}" appears more than once in orderedIds.`,
+        );
+      }
+      seen.add(id);
+    }
+    const byId = new Map(current.map((c) => [c.id, c] as const));
+    return orderedIds.map((id, i) => withOrder(byId.get(id)!, i + 1));
   }
 }

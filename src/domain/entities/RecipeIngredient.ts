@@ -1,8 +1,8 @@
 /**
  * src/domain/entities/RecipeIngredient.ts
  *
- * A line item in a recipe's ingredient list.
- * Identity comes from the combination of recipeId + ingredientId.
+ * Child entity of the Recipe aggregate. Lives only inside a Recipe's lifecycle;
+ * persistence/identity is owned by the aggregate root.
  *
  * Imports: domain only.
  */
@@ -12,64 +12,58 @@ import { DomainError } from '../errors/DomainError';
 export interface RecipeIngredientProps {
   id: string;
   recipeId: string;
-  ingredientId: string;
-  ingredientName: string;
+  name: string;
   quantity: number;
   unit: string;
-  notes: string | null;
+  order: number;
 }
 
 export class RecipeIngredient {
   readonly id: string;
   readonly recipeId: string;
-  readonly ingredientId: string;
-  readonly ingredientName: string;
-  private _quantity: number;
-  private _unit: string;
-  private _notes: string | null;
+  readonly name: string;
+  readonly quantity: number;
+  readonly unit: string;
+  readonly order: number;
 
-  constructor(props: RecipeIngredientProps) {
-    if (props.quantity <= 0) {
-      throw new DomainError('Ingredient quantity must be greater than zero.');
-    }
-    if (props.unit.trim().length === 0) {
-      throw new DomainError('Ingredient unit must not be empty.');
-    }
-
+  private constructor(props: RecipeIngredientProps) {
     this.id = props.id;
     this.recipeId = props.recipeId;
-    this.ingredientId = props.ingredientId;
-    this.ingredientName = props.ingredientName;
-    this._quantity = props.quantity;
-    this._unit = props.unit;
-    this._notes = props.notes;
+    this.name = props.name;
+    this.quantity = props.quantity;
+    this.unit = props.unit;
+    this.order = props.order;
   }
 
-  get quantity(): number {
-    return this._quantity;
-  }
-
-  get unit(): string {
-    return this._unit;
-  }
-
-  get notes(): string | null {
-    return this._notes;
-  }
-
-  /** Scale the quantity (e.g. when adjusting serving size). */
-  scale(factor: number): RecipeIngredient {
-    if (factor <= 0) {
-      throw new DomainError('Scale factor must be greater than zero.');
+  static create(props: RecipeIngredientProps): RecipeIngredient {
+    if (typeof props.name !== 'string' || props.name.trim().length === 0) {
+      throw new DomainError('RecipeIngredient.name must be a non-empty string.');
     }
-    return new RecipeIngredient({
+    if (typeof props.quantity !== 'number' || !Number.isFinite(props.quantity) || props.quantity <= 0) {
+      throw new DomainError(
+        `RecipeIngredient.quantity must be a positive number, got ${props.quantity}.`,
+      );
+    }
+    if (typeof props.unit !== 'string' || props.unit.trim().length === 0) {
+      throw new DomainError('RecipeIngredient.unit must be a non-empty string.');
+    }
+    if (!Number.isInteger(props.order) || props.order < 1) {
+      throw new DomainError(
+        `RecipeIngredient.order must be a positive integer (>= 1), got ${props.order}.`,
+      );
+    }
+    return new RecipeIngredient(props);
+  }
+
+  /** Returns a copy of this ingredient with a new order. Used by the aggregate when reordering. */
+  withOrder(newOrder: number): RecipeIngredient {
+    return RecipeIngredient.create({
       id: this.id,
       recipeId: this.recipeId,
-      ingredientId: this.ingredientId,
-      ingredientName: this.ingredientName,
-      quantity: this._quantity * factor,
-      unit: this._unit,
-      notes: this._notes,
+      name: this.name,
+      quantity: this.quantity,
+      unit: this.unit,
+      order: newOrder,
     });
   }
 }

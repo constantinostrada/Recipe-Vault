@@ -1,7 +1,7 @@
 /**
  * src/domain/entities/RecipeStep.ts
  *
- * A single numbered instruction step belonging to a Recipe.
+ * Child entity of the Recipe aggregate. Lives only inside a Recipe's lifecycle.
  *
  * Imports: domain only.
  */
@@ -11,41 +11,42 @@ import { DomainError } from '../errors/DomainError';
 export interface RecipeStepProps {
   id: string;
   recipeId: string;
-  stepNumber: number;
   instruction: string;
-  durationMin: number | null;
+  order: number;
 }
 
 export class RecipeStep {
   readonly id: string;
   readonly recipeId: string;
-  readonly stepNumber: number;
-  private _instruction: string;
-  private _durationMin: number | null;
+  readonly instruction: string;
+  readonly order: number;
 
-  constructor(props: RecipeStepProps) {
-    if (!Number.isInteger(props.stepNumber) || props.stepNumber < 1) {
-      throw new DomainError('Step number must be a positive integer.');
-    }
-    if (props.instruction.trim().length < 5) {
-      throw new DomainError('Step instruction must be at least 5 characters.');
-    }
-    if (props.durationMin !== null && props.durationMin < 0) {
-      throw new DomainError('Step duration must be non-negative.');
-    }
-
+  private constructor(props: RecipeStepProps) {
     this.id = props.id;
     this.recipeId = props.recipeId;
-    this.stepNumber = props.stepNumber;
-    this._instruction = props.instruction;
-    this._durationMin = props.durationMin;
+    this.instruction = props.instruction;
+    this.order = props.order;
   }
 
-  get instruction(): string {
-    return this._instruction;
+  static create(props: RecipeStepProps): RecipeStep {
+    if (typeof props.instruction !== 'string' || props.instruction.trim().length === 0) {
+      throw new DomainError('RecipeStep.instruction must be a non-empty string.');
+    }
+    if (!Number.isInteger(props.order) || props.order < 1) {
+      throw new DomainError(
+        `RecipeStep.order must be a positive integer (>= 1), got ${props.order}.`,
+      );
+    }
+    return new RecipeStep(props);
   }
 
-  get durationMin(): number | null {
-    return this._durationMin;
+  /** Returns a copy of this step with a new order. Used by the aggregate when reordering. */
+  withOrder(newOrder: number): RecipeStep {
+    return RecipeStep.create({
+      id: this.id,
+      recipeId: this.recipeId,
+      instruction: this.instruction,
+      order: newOrder,
+    });
   }
 }

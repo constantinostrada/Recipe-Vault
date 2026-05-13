@@ -5,16 +5,19 @@
  * Describes WHAT persistence operations exist — not HOW they are implemented.
  * The concrete implementation lives in src/infrastructure/.
  *
- * Imports: domain only.
+ * Imports: domain only. ZERO knowledge of Prisma, Postgres, HTTP, or any
+ * concrete persistence technology. This is enforced by an AC test.
  */
 
 import type { Recipe } from '../entities/Recipe';
+import type { DifficultyLevelValue } from '../value-objects/DifficultyLevel';
 
 export interface RecipeFilters {
-  authorId?: string;
-  isPublic?: boolean;
+  /** Match recipes whose tags array contains AT LEAST one of these. */
   tags?: string[];
-  difficulty?: string;
+  /** Exact difficulty match. */
+  difficulty?: DifficultyLevelValue;
+  /** Free-text search over name / description. */
   searchTerm?: string;
 }
 
@@ -44,18 +47,18 @@ export interface IRecipeRepository {
   /** Find a single recipe by its id. Returns null when not found. */
   findById(id: string): Promise<Recipe | null>;
 
+  /** Find a single recipe by its slug. Returns null when not found. */
+  findBySlug(slug: string): Promise<Recipe | null>;
+
   /** Find all recipes matching optional filters with pagination. */
   findMany(
     filters: RecipeFilters,
     pagination: PaginationOptions,
   ): Promise<PaginatedResult<Recipe>>;
 
-  /** Find all recipes authored by a specific user. */
-  findByAuthor(
-    authorId: string,
-    pagination: PaginationOptions,
-  ): Promise<PaginatedResult<Recipe>>;
-
   /** Check whether a recipe with the given id exists. */
   exists(id: string): Promise<boolean>;
 }
+
+/** Spec-aligned alias for the repository interface (the AC refers to it as "RecipeRepository"). */
+export type RecipeRepository = IRecipeRepository;
