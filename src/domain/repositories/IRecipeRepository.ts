@@ -13,11 +13,19 @@ import type { Recipe } from '../entities/Recipe';
 import type { DifficultyLevelValue } from '../value-objects/DifficultyLevel';
 
 export interface RecipeFilters {
-  /** Match recipes whose tags array contains AT LEAST one of these. */
+  /**
+   * AND semantics — a recipe matches only if its tags array contains
+   * EVERY tag listed here. An empty array is treated as "no tag filter".
+   */
   tags?: string[];
-  /** Exact difficulty match. */
-  difficulty?: DifficultyLevelValue;
-  /** Free-text search over name / description. */
+  /**
+   * OR semantics — a recipe matches if its difficulty is in this set.
+   * Used to express a multiselect filter.
+   */
+  difficulty?: DifficultyLevelValue[];
+  /** Upper bound (inclusive) for cookTimeMinutes. */
+  maxCookTimeMinutes?: number;
+  /** Free-text search over name / description (ILIKE). */
   searchTerm?: string;
 }
 
