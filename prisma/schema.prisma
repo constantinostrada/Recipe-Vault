@@ -2,7 +2,6 @@
 // Recipe Vault — Prisma Schema
 // Database: PostgreSQL
 // ORM:      Prisma 5
-// Auth:     NextAuth.js v4 with @auth/prisma-adapter
 // ─────────────────────────────────────────────────────────────────────────────
 
 generator client {
@@ -15,7 +14,7 @@ datasource db {
 }
 
 // ─────────────────────────────────────────────
-// NextAuth.js required models
+// NextAuth.js required models (orthogonal to Recipe aggregate)
 // ─────────────────────────────────────────────
 
 model Account {
@@ -58,10 +57,6 @@ model VerificationToken {
   @@map("verification_tokens")
 }
 
-// ─────────────────────────────────────────────
-// Application models
-// ─────────────────────────────────────────────
-
 model User {
   id            String    @id @default(cuid())
   name          String?
@@ -74,86 +69,58 @@ model User {
 
   accounts Account[]
   sessions Session[]
-  recipes  Recipe[]
 
   @@map("users")
 }
 
-model Recipe {
-  id          String         @id @default(cuid())
-  title       String
-  description String?        @db.Text
-  servings    Int
-  prepTimeMin Int            @map("prep_time_min")
-  cookTimeMin Int            @map("cook_time_min")
-  difficulty  String         // DifficultyLevel enum stored as string
-  isPublic    Boolean        @default(false) @map("is_public")
-  authorId    String         @map("author_id")
-  createdAt   DateTime       @default(now()) @map("created_at")
-  updatedAt   DateTime       @updatedAt @map("updated_at")
+// ─────────────────────────────────────────────
+// Recipe aggregate
+// ─────────────────────────────────────────────
 
-  author      User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+enum Difficulty {
+  easy
+  medium
+  hard
+}
+
+model Recipe {
+  id              String     @id @default(uuid()) @db.Uuid
+  slug            String     @unique
+  name            String
+  description     String?    @db.Text
+  cookTimeMinutes Int        @map("cook_time_minutes")
+  difficulty      Difficulty
+  tags            Json
+  imageUrl        String?    @map("image_url")
+
   ingredients RecipeIngredient[]
   steps       RecipeStep[]
-  tags        RecipeTag[]
 
   @@map("recipes")
 }
 
-model Ingredient {
-  id      String             @id @default(cuid())
-  name    String             @unique
-  unit    String             // default unit for this ingredient
-
-  recipes RecipeIngredient[]
-
-  @@map("ingredients")
-}
-
 model RecipeIngredient {
-  id           String  @id @default(cuid())
-  recipeId     String  @map("recipe_id")
-  ingredientId String  @map("ingredient_id")
-  quantity     Float
-  unit         String
-  notes        String?
+  id       String @id @default(uuid()) @db.Uuid
+  recipeId String @map("recipe_id") @db.Uuid
+  name     String
+  quantity Float
+  unit     String
+  order    Int
 
-  recipe     Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 
-  @@unique([recipeId, ingredientId])
+  @@unique([recipeId, order])
   @@map("recipe_ingredients")
 }
 
 model RecipeStep {
-  id          String @id @default(cuid())
-  recipeId    String @map("recipe_id")
-  stepNumber  Int    @map("step_number")
+  id          String @id @default(uuid()) @db.Uuid
+  recipeId    String @map("recipe_id") @db.Uuid
   instruction String @db.Text
-  durationMin Int?   @map("duration_min")
+  order       Int
 
   recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 
-  @@unique([recipeId, stepNumber])
+  @@unique([recipeId, order])
   @@map("recipe_steps")
-}
-
-model Tag {
-  id      String      @id @default(cuid())
-  name    String      @unique
-  slug    String      @unique
-  recipes RecipeTag[]
-
-  @@map("tags")
-}
-
-model RecipeTag {
-  recipeId String @map("recipe_id")
-  tagId    String @map("tag_id")
-
-  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
-
-  @@id([recipeId, tagId])
-  @@map("recipe_tags")
 }
