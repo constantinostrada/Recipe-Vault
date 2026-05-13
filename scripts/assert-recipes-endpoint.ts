@@ -16,6 +16,8 @@
  */
 
 import { register as registerTsConfigPaths } from 'tsconfig-paths';
+import * as path from 'path';
+import Module from 'module';
 
 registerTsConfigPaths({
   baseUrl: process.cwd(),
@@ -27,6 +29,18 @@ registerTsConfigPaths({
     '@/interfaces/*': ['src/interfaces/*'],
   },
 });
+
+// Stub authOptions so transitive imports don't drag in @auth/prisma-adapter
+// (which lacks CJS "main" and breaks transpile-only ts-node).
+const authOptionsPath = path.resolve(
+  process.cwd(),
+  'src/infrastructure/auth/authOptions.ts',
+);
+const stubModule = new Module(authOptionsPath, undefined);
+stubModule.filename = authOptionsPath;
+stubModule.loaded = true;
+(stubModule as unknown as { exports: unknown }).exports = { authOptions: {} };
+require.cache[authOptionsPath] = stubModule;
 
 import { Recipe } from '../src/domain/entities/Recipe';
 import { RecipeIngredient } from '../src/domain/entities/RecipeIngredient';
@@ -42,6 +56,7 @@ import type {
 
 import { SearchRecipesUseCase } from '../src/application/use-cases/recipe/SearchRecipesUseCase';
 import { GetRecipeBySlugUseCase } from '../src/application/use-cases/recipe/GetRecipeBySlugUseCase';
+import { CreateRecipeUseCase } from '../src/application/use-cases/recipe/CreateRecipeUseCase';
 
 import { RecipeController } from '../src/interfaces/http/controllers/RecipeController';
 
@@ -205,6 +220,7 @@ function buildController(recipes: Recipe[] = FIXTURES): {
   const controller = new RecipeController(
     new SearchRecipesUseCase(repo),
     new GetRecipeBySlugUseCase(repo),
+    new CreateRecipeUseCase(repo),
   );
   return { controller, repo };
 }
