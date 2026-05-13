@@ -1,0 +1,159 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Recipe Vault — Prisma Schema
+// Database: PostgreSQL
+// ORM:      Prisma 5
+// Auth:     NextAuth.js v4 with @auth/prisma-adapter
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// NextAuth.js required models
+// ─────────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─────────────────────────────────────────────
+// Application models
+// ─────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?   @map("password_hash") @db.Text
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  accounts Account[]
+  sessions Session[]
+  recipes  Recipe[]
+
+  @@map("users")
+}
+
+model Recipe {
+  id          String         @id @default(cuid())
+  title       String
+  description String?        @db.Text
+  servings    Int
+  prepTimeMin Int            @map("prep_time_min")
+  cookTimeMin Int            @map("cook_time_min")
+  difficulty  String         // DifficultyLevel enum stored as string
+  isPublic    Boolean        @default(false) @map("is_public")
+  authorId    String         @map("author_id")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  author      User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  ingredients RecipeIngredient[]
+  steps       RecipeStep[]
+  tags        RecipeTag[]
+
+  @@map("recipes")
+}
+
+model Ingredient {
+  id      String             @id @default(cuid())
+  name    String             @unique
+  unit    String             // default unit for this ingredient
+
+  recipes RecipeIngredient[]
+
+  @@map("ingredients")
+}
+
+model RecipeIngredient {
+  id           String  @id @default(cuid())
+  recipeId     String  @map("recipe_id")
+  ingredientId String  @map("ingredient_id")
+  quantity     Float
+  unit         String
+  notes        String?
+
+  recipe     Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+
+  @@unique([recipeId, ingredientId])
+  @@map("recipe_ingredients")
+}
+
+model RecipeStep {
+  id          String @id @default(cuid())
+  recipeId    String @map("recipe_id")
+  stepNumber  Int    @map("step_number")
+  instruction String @db.Text
+  durationMin Int?   @map("duration_min")
+
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@unique([recipeId, stepNumber])
+  @@map("recipe_steps")
+}
+
+model Tag {
+  id      String      @id @default(cuid())
+  name    String      @unique
+  slug    String      @unique
+  recipes RecipeTag[]
+
+  @@map("tags")
+}
+
+model RecipeTag {
+  recipeId String @map("recipe_id")
+  tagId    String @map("tag_id")
+
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([recipeId, tagId])
+  @@map("recipe_tags")
+}

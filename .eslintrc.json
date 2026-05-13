@@ -1,0 +1,44 @@
+{
+  "extends": [
+    "next/core-web-vitals",
+    "plugin:@typescript-eslint/recommended",
+    "prettier"
+  ],
+  "parser": "@typescript-eslint/parser",
+  "plugins": ["@typescript-eslint", "import"],
+  "rules": {
+    "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+    "@typescript-eslint/no-explicit-any": "error",
+    "@typescript-eslint/consistent-type-imports": ["error", { "prefer": "type-imports" }],
+    "@typescript-eslint/no-non-null-assertion": "warn",
+    "import/no-cycle": "error",
+    "import/order": [
+      "error",
+      {
+        "groups": [
+          "builtin",
+          "external",
+          "internal",
+          ["parent", "sibling", "index"]
+        ],
+        "pathGroups": [
+          { "pattern": "@/domain/**", "group": "internal", "position": "before" },
+          { "pattern": "@/application/**", "group": "internal" },
+          { "pattern": "@/infrastructure/**", "group": "internal" },
+          { "pattern": "@/interfaces/**", "group": "internal", "position": "after" }
+        ],
+        "newlines-between": "always",
+        "alphabetize": { "order": "asc" }
+      }
+    ],
+    "no-console": ["warn", { "allow": ["warn", "error"] }]
+  },
+  "overrides": [
+    {
+      "files": ["src/infrastructure/**/*.ts"],
+      "rules": {
+        "no-console": ["warn", { "allow": ["warn", "error", "info"] }]
+      }
+    }
+  ]
+}
