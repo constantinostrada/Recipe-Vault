@@ -4,168 +4,68 @@
  * Concrete implementation of IRecipeRepository using Prisma + PostgreSQL.
  *
  * Responsibilities:
- *  - Maps Prisma DB rows → domain entities (Recipe, RecipeIngredient, RecipeStep)
- *  - Maps domain entities → Prisma create/update payloads
- *  - Wraps Prisma errors as domain/application errors
+ *  - Translate domain operations into Prisma queries
+ *  - Map Prisma rows ↔ Recipe domain entities (delegated to RecipePrismaMapper)
+ *  - Wrap Prisma errors as domain/application errors
  *
- * Imports: domain, application, and infrastructure (Prisma client).
- * Never imports from interfaces/.
+ * Imports: domain + infrastructure (Prisma client, mapper). Never imports
+ * from interfaces/.  The mapping is the only place where Prisma types touch
+ * the Recipe domain entity — the domain itself has zero Prisma awareness.
  */
 
 import type { Prisma } from '@prisma/client';
 
 import { Recipe } from '@/domain/entities/Recipe';
-import { RecipeIngredient } from '@/domain/entities/RecipeIngredient';
-import { RecipeStep } from '@/domain/entities/RecipeStep';
-import { DifficultyLevel } from '@/domain/value-objects/DifficultyLevel';
 import {
-  RecipeNotFoundError,
   DomainError,
+  DuplicateResourceError,
+  RecipeNotFoundError,
 } from '@/domain/errors/DomainError';
 import type {
   IRecipeRepository,
-  RecipeFilters,
-  PaginationOptions,
   PaginatedResult,
+  PaginationOptions,
+  RecipeFilters,
 } from '@/domain/repositories/IRecipeRepository';
 
 import { prisma } from '../db/prisma';
 
-// ── Prisma query include shape ─────────────────────────────────────────────
-
-const RECIPE_INCLUDE = {
-  ingredients: {
-    include: { ingredient: true },
-  },
-  steps: {
-    orderBy: { stepNumber: 'asc' as const },
-  },
-  tags: {
-    include: { tag: true },
-  },
-} satisfies Prisma.RecipeInclude;
-
-type PrismaRecipeFull = Prisma.RecipeGetPayload<{ include: typeof RECIPE_INCLUDE }>;
-
-// ── Mapper ─────────────────────────────────────────────────────────────────
-
-function toDomain(row: PrismaRecipeFull): Recipe {
-  const ingredients = row.ingredients.map(
-    (ri) =>
-      new RecipeIngredient({
-        id: ri.id,
-        recipeId: ri.recipeId,
-        ingredientId: ri.ingredientId,
-        ingredientName: ri.ingredient.name,
-        quantity: ri.quantity,
-        unit: ri.unit,
-        notes: ri.notes,
-      }),
-  );
-
-  const steps = row.steps.map(
-    (s) =>
-      new RecipeStep({
-        id: s.id,
-        recipeId: s.recipeId,
-        stepNumber: s.stepNumber,
-        instruction: s.instruction,
-        durationMin: s.durationMin,
-      }),
-  );
-
-  const tags = row.tags.map((rt) => rt.tag.name);
-
-  return Recipe.create({
-    id: row.id,
-    title: row.title,
-    description: row.description,
-    servings: row.servings,
-    prepTimeMin: row.prepTimeMin,
-    cookTimeMin: row.cookTimeMin,
-    difficulty: DifficultyLevel.create(row.difficulty),
-    isPublic: row.isPublic,
-    authorId: row.authorId,
-    ingredients,
-    steps,
-    tags,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  });
-}
-
-// ── Repository implementation ──────────────────────────────────────────────
+import {
+  RECIPE_INCLUDE,
+  RecipePrismaMapper,
+} from './RecipePrismaMapper';
 
 export class PrismaRecipeRepository implements IRecipeRepository {
   async save(recipe: Recipe): Promise<void> {
     try {
       await prisma.recipe.create({
-        data: {
-          id: recipe.id,
-          title: recipe.title,
-          description: recipe.description,
-          servings: recipe.servings,
-          prepTimeMin: recipe.prepTimeMin,
-          cookTimeMin: recipe.cookTimeMin,
-          difficulty: recipe.difficulty.value,
-          isPublic: recipe.isPublic,
-          authorId: recipe.authorId,
-          createdAt: recipe.createdAt,
-          updatedAt: recipe.updatedAt,
-          ingredients: {
-            create: recipe.ingredients.map((i) => ({
-              id: i.id,
-              ingredientId: i.ingredientId,
-              quantity: i.quantity,
-              unit: i.unit,
-              notes: i.notes,
-            })),
-          },
-          steps: {
-            create: recipe.steps.map((s) => ({
-              id: s.id,
-              stepNumber: s.stepNumber,
-              instruction: s.instruction,
-              durationMin: s.durationMin,
-            })),
-          },
-          tags: {
-            create: recipe.tags.map((tagName) => ({
-              tag: {
-                connectOrCreate: {
-                  where: { name: tagName },
-                  create: {
-                    name: tagName,
-                    slug: tagName.toLowerCase().replace(/\s+/g, '-'),
-                  },
-                },
-              },
-            })),
-          },
-        },
+        data: RecipePrismaMapper.toCreateInput(recipe),
       });
     } catch (err) {
-      this.handlePrismaError(err, 'save recipe');
+      this.handlePrismaError(err, recipe.id, 'save recipe');
     }
   }
 
   async update(recipe: Recipe): Promise<void> {
     try {
-      await prisma.recipe.update({
-        where: { id: recipe.id },
-        data: {
-          title: recipe.title,
-          description: recipe.description,
-          servings: recipe.servings,
-          prepTimeMin: recipe.prepTimeMin,
-          cookTimeMin: recipe.cookTimeMin,
-          difficulty: recipe.difficulty.value,
-          isPublic: recipe.isPublic,
-          updatedAt: recipe.updatedAt,
-        },
-      });
+      await prisma.$transaction([
+        prisma.recipeIngredient.deleteMany({ where: { recipeId: recipe.id } }),
+        prisma.recipeStep.deleteMany({ where: { recipeId: recipe.id } }),
+        prisma.recipe.update({
+          where: { id: recipe.id },
+          data: RecipePrismaMapper.toUpdateRootData(recipe),
+        }),
+        prisma.recipeIngredient.createMany({
+          data: recipe.ingredients.map((i) =>
+            RecipePrismaMapper.ingredientCreatePayload(i),
+          ),
+        }),
+        prisma.recipeStep.createMany({
+          data: recipe.steps.map((s) => RecipePrismaMapper.stepCreatePayload(s)),
+        }),
+      ]);
     } catch (err) {
-      this.handlePrismaError(err, 'update recipe');
+      this.handlePrismaError(err, recipe.id, 'update recipe');
     }
   }
 
@@ -173,7 +73,7 @@ export class PrismaRecipeRepository implements IRecipeRepository {
     try {
       await prisma.recipe.delete({ where: { id } });
     } catch (err) {
-      this.handlePrismaError(err, 'delete recipe');
+      this.handlePrismaError(err, id, 'delete recipe');
     }
   }
 
@@ -182,33 +82,46 @@ export class PrismaRecipeRepository implements IRecipeRepository {
       where: { id },
       include: RECIPE_INCLUDE,
     });
+    return row ? RecipePrismaMapper.toDomain(row) : null;
+  }
 
-    return row ? toDomain(row) : null;
+  async findBySlug(slug: string): Promise<Recipe | null> {
+    const row = await prisma.recipe.findUnique({
+      where: { slug },
+      include: RECIPE_INCLUDE,
+    });
+    return row ? RecipePrismaMapper.toDomain(row) : null;
   }
 
   async findMany(
     filters: RecipeFilters,
     pagination: PaginationOptions,
   ): Promise<PaginatedResult<Recipe>> {
-    const where: Prisma.RecipeWhereInput = {
-      ...(filters.authorId !== undefined && { authorId: filters.authorId }),
-      ...(filters.isPublic !== undefined && { isPublic: filters.isPublic }),
-      ...(filters.difficulty !== undefined && { difficulty: filters.difficulty }),
-      ...(filters.tags !== undefined &&
-        filters.tags.length > 0 && {
-          tags: {
-            some: {
-              tag: { name: { in: filters.tags } },
-            },
-          },
-        }),
-      ...(filters.searchTerm !== undefined && {
+    const and: Prisma.RecipeWhereInput[] = [];
+
+    if (filters.difficulty !== undefined) {
+      and.push({ difficulty: filters.difficulty });
+    }
+
+    if (filters.searchTerm !== undefined && filters.searchTerm.trim().length > 0) {
+      and.push({
         OR: [
-          { title: { contains: filters.searchTerm, mode: 'insensitive' } },
+          { name: { contains: filters.searchTerm, mode: 'insensitive' } },
           { description: { contains: filters.searchTerm, mode: 'insensitive' } },
         ],
-      }),
-    };
+      });
+    }
+
+    if (filters.tags !== undefined && filters.tags.length > 0) {
+      // tags column is a JSON array. The interface contract says
+      // "match recipes whose tags array contains AT LEAST ONE of these" —
+      // OR of array_contains per requested tag.
+      and.push({
+        OR: filters.tags.map((tag) => ({ tags: { array_contains: tag } })),
+      });
+    }
+
+    const where: Prisma.RecipeWhereInput = and.length > 0 ? { AND: and } : {};
 
     const skip = (pagination.page - 1) * pagination.pageSize;
 
@@ -216,7 +129,7 @@ export class PrismaRecipeRepository implements IRecipeRepository {
       prisma.recipe.findMany({
         where,
         include: RECIPE_INCLUDE,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { name: 'asc' },
         skip,
         take: pagination.pageSize,
       }),
@@ -224,19 +137,12 @@ export class PrismaRecipeRepository implements IRecipeRepository {
     ]);
 
     return {
-      data: rows.map(toDomain),
+      data: rows.map(RecipePrismaMapper.toDomain),
       total,
       page: pagination.page,
       pageSize: pagination.pageSize,
-      totalPages: Math.ceil(total / pagination.pageSize),
+      totalPages: Math.max(1, Math.ceil(total / pagination.pageSize)),
     };
-  }
-
-  async findByAuthor(
-    authorId: string,
-    pagination: PaginationOptions,
-  ): Promise<PaginatedResult<Recipe>> {
-    return this.findMany({ authorId }, pagination);
   }
 
   async exists(id: string): Promise<boolean> {
@@ -244,19 +150,18 @@ export class PrismaRecipeRepository implements IRecipeRepository {
     return count > 0;
   }
 
-  // ── Error handling ───────────────────────────────────────────────────────
-
-  private handlePrismaError(err: unknown, operation: string): never {
-    // Prisma known error codes
+  private handlePrismaError(err: unknown, id: string, operation: string): never {
     if (typeof err === 'object' && err !== null && 'code' in err) {
       const code = (err as { code: string }).code;
       if (code === 'P2025') {
-        throw new RecipeNotFoundError('unknown');
+        throw new RecipeNotFoundError(id);
       }
       if (code === 'P2002') {
-        throw new DomainError(`Duplicate record when trying to ${operation}.`);
+        throw new DuplicateResourceError('recipe');
       }
     }
-    throw new DomainError(`Unexpected error during ${operation}.`);
+    if (err instanceof DomainError) throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new DomainError(`Unexpected error while ${operation}: ${msg}`);
   }
 }
