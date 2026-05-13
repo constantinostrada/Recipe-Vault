@@ -99,8 +99,12 @@ export class PrismaRecipeRepository implements IRecipeRepository {
   ): Promise<PaginatedResult<Recipe>> {
     const and: Prisma.RecipeWhereInput[] = [];
 
-    if (filters.difficulty !== undefined) {
-      and.push({ difficulty: filters.difficulty });
+    if (filters.difficulty !== undefined && filters.difficulty.length > 0) {
+      and.push({ difficulty: { in: filters.difficulty } });
+    }
+
+    if (filters.maxCookTimeMinutes !== undefined) {
+      and.push({ cookTimeMinutes: { lte: filters.maxCookTimeMinutes } });
     }
 
     if (filters.searchTerm !== undefined && filters.searchTerm.trim().length > 0) {
@@ -114,11 +118,11 @@ export class PrismaRecipeRepository implements IRecipeRepository {
 
     if (filters.tags !== undefined && filters.tags.length > 0) {
       // tags column is a JSON array. The interface contract says
-      // "match recipes whose tags array contains AT LEAST ONE of these" —
-      // OR of array_contains per requested tag.
-      and.push({
-        OR: filters.tags.map((tag) => ({ tags: { array_contains: tag } })),
-      });
+      // "recipe must contain ALL listed tags" — AND of array_contains
+      // per requested tag.
+      for (const tag of filters.tags) {
+        and.push({ tags: { array_contains: tag } });
+      }
     }
 
     const where: Prisma.RecipeWhereInput = and.length > 0 ? { AND: and } : {};
