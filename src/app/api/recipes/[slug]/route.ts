@@ -4,6 +4,8 @@
  * Next.js App Router route handler for /api/recipes/:slug.
  *
  *   GET /api/recipes/:slug → full recipe detail (ingredients + steps)
+ *   PUT /api/recipes/:slug → update an existing recipe (body: name?,
+ *                             cookTimeMinutes?, difficulty?, tags?, ...)
  *
  * All logic is delegated to RecipeController.
  */
@@ -17,4 +19,11 @@ export async function GET(
   context: { params: { slug: string } },
 ) {
   return recipeController.getBySlug(req, context);
+}
+
+export async function PUT(
+  req: NextRequest,
+  context: { params: { slug: string } },
+) {
+  return recipeController.update(req, context);
 }

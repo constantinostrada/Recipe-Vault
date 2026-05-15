@@ -17,8 +17,10 @@
  * long-running server you would use a proper IoC library.
  */
 
+import { AddRecipeUseCase } from '@/application/use-cases/recipe/AddRecipeUseCase';
 import { CreateRecipeUseCase } from '@/application/use-cases/recipe/CreateRecipeUseCase';
 import { DeleteRecipeUseCase } from '@/application/use-cases/recipe/DeleteRecipeUseCase';
+import { EditRecipeUseCase } from '@/application/use-cases/recipe/EditRecipeUseCase';
 import { GetRecipeUseCase } from '@/application/use-cases/recipe/GetRecipeUseCase';
 import { GetRecipeBySlugUseCase } from '@/application/use-cases/recipe/GetRecipeBySlugUseCase';
 import { ListRecipesUseCase } from '@/application/use-cases/recipe/ListRecipesUseCase';
@@ -39,7 +41,9 @@ function buildContainer() {
   // ── Use cases ──────────────────────────────────────────────────────────
   return {
     // Recipe
+    addRecipeUseCase: new AddRecipeUseCase(recipeRepository),
     createRecipeUseCase: new CreateRecipeUseCase(recipeRepository),
+    editRecipeUseCase: new EditRecipeUseCase(recipeRepository),
     getRecipeUseCase: new GetRecipeUseCase(recipeRepository),
     getRecipeBySlugUseCase: new GetRecipeBySlugUseCase(recipeRepository),
     listRecipesUseCase: new ListRecipesUseCase(recipeRepository),
