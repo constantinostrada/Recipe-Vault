@@ -9,6 +9,7 @@
  * concrete persistence technology. This is enforced by an AC test.
  */
 
+import type { Rating } from '../entities/Rating';
 import type { Recipe } from '../entities/Recipe';
 import type { DifficultyLevelValue } from '../value-objects/DifficultyLevel';
 
@@ -66,6 +67,17 @@ export interface IRecipeRepository {
 
   /** Check whether a recipe with the given id exists. */
   exists(id: string): Promise<boolean>;
+
+  /** Persist a new rating for an existing recipe. */
+  saveRating(rating: Rating): Promise<void>;
+
+  /**
+   * Average rating per recipe id (un-rounded). Map value is null for recipes
+   * with zero ratings. Recipes not present in `recipeIds` are not returned.
+   */
+  getAverageRatingsByRecipeIds(
+    recipeIds: string[],
+  ): Promise<Map<string, number | null>>;
 }
 
 /** Spec-aligned alias for the repository interface (the AC refers to it as "RecipeRepository"). */

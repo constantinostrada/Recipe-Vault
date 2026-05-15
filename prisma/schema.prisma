@@ -95,6 +95,7 @@ model Recipe {
 
   ingredients RecipeIngredient[]
   steps       RecipeStep[]
+  ratings     RecipeRating[]
 
   @@map("recipes")
 }
@@ -123,4 +124,16 @@ model RecipeStep {
 
   @@unique([recipeId, order])
   @@map("recipe_steps")
+}
+
+model RecipeRating {
+  id        String   @id @default(uuid()) @db.Uuid
+  recipeId  String   @map("recipe_id") @db.Uuid
+  value     Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@index([recipeId])
+  @@map("recipe_ratings")
 }

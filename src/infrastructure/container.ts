@@ -23,6 +23,7 @@ import { GetRecipeUseCase } from '@/application/use-cases/recipe/GetRecipeUseCas
 import { GetRecipeBySlugUseCase } from '@/application/use-cases/recipe/GetRecipeBySlugUseCase';
 import { ListRecipesUseCase } from '@/application/use-cases/recipe/ListRecipesUseCase';
 import { PublishRecipeUseCase } from '@/application/use-cases/recipe/PublishRecipeUseCase';
+import { RateRecipeUseCase } from '@/application/use-cases/recipe/RateRecipeUseCase';
 import { SearchRecipesUseCase } from '@/application/use-cases/recipe/SearchRecipesUseCase';
 import { UpdateRecipeUseCase } from '@/application/use-cases/recipe/UpdateRecipeUseCase';
 import { GetUserProfileUseCase } from '@/application/use-cases/user/GetUserProfileUseCase';
@@ -47,6 +48,7 @@ function buildContainer() {
     updateRecipeUseCase: new UpdateRecipeUseCase(recipeRepository),
     deleteRecipeUseCase: new DeleteRecipeUseCase(recipeRepository),
     publishRecipeUseCase: new PublishRecipeUseCase(recipeRepository),
+    rateRecipeUseCase: new RateRecipeUseCase(recipeRepository),
 
     // User
     getUserProfileUseCase: new GetUserProfileUseCase(userRepository),
