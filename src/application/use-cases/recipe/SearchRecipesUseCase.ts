@@ -115,6 +115,13 @@ export class SearchRecipesUseCase {
       if (deduped.length > 0) filters.tags = deduped;
     }
 
+    if (query.ingredient !== undefined) {
+      const trimmed = query.ingredient.trim();
+      if (trimmed.length > 0) {
+        filters.ingredientName = trimmed;
+      }
+    }
+
     return filters;
   }
 }
