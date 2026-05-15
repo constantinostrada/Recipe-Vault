@@ -27,10 +27,11 @@ import { z } from 'zod';
 
 import type { SearchRecipesUseCase } from '@/application/use-cases/recipe/SearchRecipesUseCase';
 import type { GetRecipeBySlugUseCase } from '@/application/use-cases/recipe/GetRecipeBySlugUseCase';
+import type { DuplicateRecipeUseCase } from '@/application/use-cases/recipe/DuplicateRecipeUseCase';
 import type { SearchRecipesQuery } from '@/application/dtos/SearchRecipesDto';
 import { container } from '@/infrastructure/container';
 
-import { errorResponse, successResponse } from '../helpers/apiResponse';
+import { createdResponse, errorResponse, successResponse } from '../helpers/apiResponse';
 
 // ── Validation schema ───────────────────────────────────────────────────────
 
@@ -63,12 +64,18 @@ const slugParamSchema = z
   .trim()
   .min(1, { message: 'slug must be a non-empty string' });
 
+const recipeIdParamSchema = z
+  .string({ required_error: 'id is required', invalid_type_error: 'id must be a string' })
+  .trim()
+  .min(1, { message: 'id must be a non-empty string' });
+
 // ── Controller ──────────────────────────────────────────────────────────────
 
 export class RecipeController {
   constructor(
     private readonly searchRecipesUseCase: SearchRecipesUseCase,
     private readonly getRecipeBySlugUseCase: GetRecipeBySlugUseCase,
+    private readonly duplicateRecipeUseCase: DuplicateRecipeUseCase,
   ) {}
 
   /**
@@ -140,6 +147,32 @@ export class RecipeController {
       return errorResponse(err);
     }
   };
+
+  /**
+   * POST /api/recipes/:id/duplicate
+   * Creates a duplicate of the recipe identified by `:id`. The new recipe
+   * has its own unique id, a derived unique slug, identical ingredients and
+   * steps (with fresh child ids), and a title suffixed with " (copy)".
+   * Returns 201 with the new recipe detail in the response body.
+   *
+   * The path param is named `slug` only because Next.js requires a single
+   * dynamic-segment name under `recipes/`; the value is treated as a recipe id.
+   */
+  duplicate = async (
+    _req: NextRequest,
+    { params }: { params: { slug: string } },
+  ): Promise<NextResponse> => {
+    try {
+      const recipeId = recipeIdParamSchema.parse(params?.slug);
+      const result = await this.duplicateRecipeUseCase.execute({ recipeId });
+      return createdResponse(result);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return validationErrorResponse(err);
+      }
+      return errorResponse(err);
+    }
+  };
 }
 
 function validationErrorResponse(err: z.ZodError): NextResponse {
@@ -162,4 +195,5 @@ function validationErrorResponse(err: z.ZodError): NextResponse {
 export const recipeController = new RecipeController(
   container.searchRecipesUseCase,
   container.getRecipeBySlugUseCase,
+  container.duplicateRecipeUseCase,
 );

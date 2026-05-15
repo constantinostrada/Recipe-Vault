@@ -19,6 +19,7 @@
 
 import { CreateRecipeUseCase } from '@/application/use-cases/recipe/CreateRecipeUseCase';
 import { DeleteRecipeUseCase } from '@/application/use-cases/recipe/DeleteRecipeUseCase';
+import { DuplicateRecipeUseCase } from '@/application/use-cases/recipe/DuplicateRecipeUseCase';
 import { GetRecipeUseCase } from '@/application/use-cases/recipe/GetRecipeUseCase';
 import { GetRecipeBySlugUseCase } from '@/application/use-cases/recipe/GetRecipeBySlugUseCase';
 import { ListRecipesUseCase } from '@/application/use-cases/recipe/ListRecipesUseCase';
@@ -47,6 +48,7 @@ function buildContainer() {
     updateRecipeUseCase: new UpdateRecipeUseCase(recipeRepository),
     deleteRecipeUseCase: new DeleteRecipeUseCase(recipeRepository),
     publishRecipeUseCase: new PublishRecipeUseCase(recipeRepository),
+    duplicateRecipeUseCase: new DuplicateRecipeUseCase(recipeRepository),
 
     // User
     getUserProfileUseCase: new GetUserProfileUseCase(userRepository),
