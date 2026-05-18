@@ -27,14 +27,19 @@ import { SearchRecipesUseCase } from '@/application/use-cases/recipe/SearchRecip
 import { UpdateRecipeUseCase } from '@/application/use-cases/recipe/UpdateRecipeUseCase';
 import { GetUserProfileUseCase } from '@/application/use-cases/user/GetUserProfileUseCase';
 import { UpdateUserProfileUseCase } from '@/application/use-cases/user/UpdateUserProfileUseCase';
+import { AddFavoriteUseCase } from '@/application/use-cases/favorite/AddFavoriteUseCase';
+import { RemoveFavoriteUseCase } from '@/application/use-cases/favorite/RemoveFavoriteUseCase';
+import { ListUserFavoritesUseCase } from '@/application/use-cases/favorite/ListUserFavoritesUseCase';
 
 import { PrismaRecipeRepository } from './repositories/PrismaRecipeRepository';
 import { PrismaUserRepository } from './repositories/PrismaUserRepository';
+import { PrismaFavoriteRecipeRepository } from './repositories/PrismaFavoriteRecipeRepository';
 
 function buildContainer() {
   // ── Repositories ───────────────────────────────────────────────────────
   const recipeRepository = new PrismaRecipeRepository();
   const userRepository = new PrismaUserRepository();
+  const favoriteRecipeRepository = new PrismaFavoriteRecipeRepository();
 
   // ── Use cases ──────────────────────────────────────────────────────────
   return {
@@ -51,6 +56,11 @@ function buildContainer() {
     // User
     getUserProfileUseCase: new GetUserProfileUseCase(userRepository),
     updateUserProfileUseCase: new UpdateUserProfileUseCase(userRepository),
+
+    // Favorite
+    addFavoriteUseCase: new AddFavoriteUseCase(favoriteRecipeRepository, recipeRepository),
+    removeFavoriteUseCase: new RemoveFavoriteUseCase(favoriteRecipeRepository),
+    listUserFavoritesUseCase: new ListUserFavoritesUseCase(favoriteRecipeRepository),
   } as const;
 }
 

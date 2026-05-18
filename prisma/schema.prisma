@@ -67,8 +67,9 @@ model User {
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  accounts Account[]
-  sessions Session[]
+  accounts  Account[]
+  sessions  Session[]
+  favorites UserFavorite[]
 
   @@map("users")
 }
@@ -95,8 +96,23 @@ model Recipe {
 
   ingredients RecipeIngredient[]
   steps       RecipeStep[]
+  favoritedBy UserFavorite[]
 
   @@map("recipes")
+}
+
+model UserFavorite {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  recipeId  String   @map("recipe_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, recipeId])
+  @@index([userId])
+  @@map("user_favorites")
 }
 
 model RecipeIngredient {
