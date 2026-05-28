@@ -482,6 +482,67 @@ export async function test_ac5_get_recipe_by_slug_returns_detail(): Promise<void
   assert(empty.status === 400, `empty slug should return 400, got ${empty.status}`);
 }
 
+// ── Request-Id tests (task RveiSTUEW7OKxBHJtH5T) ─────────────────────────────
+
+import { createdResponse } from '../src/interfaces/http/helpers/apiResponse';
+
+const UUID_V4_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function assertUuidV4Header(res: { headers: Headers }, label: string): string {
+  const id = res.headers.get('x-request-id');
+  assert(id !== null && id !== undefined, `${label}: X-Request-Id header is present`);
+  assert(typeof id === 'string', `${label}: X-Request-Id is a string`);
+  assert(
+    UUID_V4_REGEX.test(id!),
+    `${label}: X-Request-Id "${id}" must be a UUID v4 (matches ${UUID_V4_REGEX})`,
+  );
+  return id!;
+}
+
+/** AC-RID-1: GET /recipes carries an X-Request-Id header in UUID v4 format. */
+export async function test_request_id_ac1_get_recipes_has_uuid_v4_header(): Promise<void> {
+  const { controller } = buildController();
+  const res = await controller.list(makeReq('http://localhost/api/recipes'));
+  assert(res.status === 200, `expected 200, got ${res.status}`);
+  assertUuidV4Header(res, 'GET /recipes');
+}
+
+/** AC-RID-2: GET /recipes/:slug carries an X-Request-Id header in UUID v4 format. */
+export async function test_request_id_ac2_get_recipe_by_slug_has_uuid_v4_header(): Promise<void> {
+  const { controller } = buildController();
+  const res = await controller.getBySlug(
+    makeReq('http://localhost/api/recipes/tortilla'),
+    { params: { slug: 'tortilla' } },
+  );
+  assert(res.status === 200, `expected 200, got ${res.status}`);
+  assertUuidV4Header(res, 'GET /recipes/:slug');
+}
+
+/**
+ * AC-RID-3: POST /recipes responses carry an X-Request-Id header in UUID v4
+ * format. POST /api/recipes is currently absent (it was removed and is queued
+ * for a separate realign task), so we assert against `createdResponse(...)` —
+ * the response helper a POST handler will call. Header injection runs at the
+ * helper layer, so re-introducing POST automatically inherits the behaviour.
+ */
+export async function test_request_id_ac3_post_recipes_has_uuid_v4_header(): Promise<void> {
+  const res = createdResponse({ id: 'r1', name: 'Tortilla' });
+  assert(res.status === 201, `expected 201 (POST/created), got ${res.status}`);
+  assertUuidV4Header(res, 'POST /recipes (createdResponse)');
+}
+
+/** AC-RID-4: two sequential requests get distinct UUIDs. */
+export async function test_request_id_ac4_sequential_requests_get_unique_uuids(): Promise<void> {
+  const { controller } = buildController();
+  const ids = new Set<string>();
+  for (let i = 0; i < 2; i += 1) {
+    const res = await controller.list(makeReq('http://localhost/api/recipes'));
+    ids.add(assertUuidV4Header(res, `sequential GET /recipes #${i + 1}`));
+  }
+  assert(ids.size === 2, `expected 2 distinct request ids across 2 calls, got ${ids.size}`);
+}
+
 // ── Runner ───────────────────────────────────────────────────────────────────
 
 const ALL_TESTS: Record<string, () => Promise<void>> = {
@@ -490,6 +551,10 @@ const ALL_TESTS: Record<string, () => Promise<void>> = {
   test_ac3_difficulty_and_tags_repeatable,
   test_ac4_response_is_array_of_summary_dto,
   test_ac5_get_recipe_by_slug_returns_detail,
+  test_request_id_ac1_get_recipes_has_uuid_v4_header,
+  test_request_id_ac2_get_recipe_by_slug_has_uuid_v4_header,
+  test_request_id_ac3_post_recipes_has_uuid_v4_header,
+  test_request_id_ac4_sequential_requests_get_unique_uuids,
 };
 
 async function main(): Promise<void> {

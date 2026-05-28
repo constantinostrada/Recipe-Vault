@@ -30,7 +30,7 @@ import type { GetRecipeBySlugUseCase } from '@/application/use-cases/recipe/GetR
 import type { SearchRecipesQuery } from '@/application/dtos/SearchRecipesDto';
 import { container } from '@/infrastructure/container';
 
-import { errorResponse, successResponse } from '../helpers/apiResponse';
+import { errorResponse, successResponse, withRequestId } from '../helpers/apiResponse';
 
 // ── Validation schema ───────────────────────────────────────────────────────
 
@@ -149,12 +149,14 @@ function validationErrorResponse(err: z.ZodError): NextResponse {
       return path ? `${path}: ${e.message}` : e.message;
     })
     .join('; ');
-  return NextResponse.json(
-    {
-      success: false,
-      error: { message, code: 'VALIDATION_ERROR' },
-    },
-    { status: 400 },
+  return withRequestId(
+    NextResponse.json(
+      {
+        success: false,
+        error: { message, code: 'VALIDATION_ERROR' },
+      },
+      { status: 400 },
+    ),
   );
 }
 
