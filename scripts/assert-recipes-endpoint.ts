@@ -93,6 +93,12 @@ class InMemoryRecipeRepository implements IRecipeRepository {
     if (filters.tags && filters.tags.length > 0) {
       data = data.filter((r) => filters.tags!.every((t) => r.tags.includes(t)));
     }
+    if (filters.ingredientName && filters.ingredientName.length > 0) {
+      const needle = filters.ingredientName.toLowerCase();
+      data = data.filter((r) =>
+        r.ingredients.some((i) => i.name.toLowerCase().includes(needle)),
+      );
+    }
     const total = data.length;
     const start = (pagination.page - 1) * pagination.pageSize;
     const paged = data.slice(start, start + pagination.pageSize);
@@ -166,6 +172,11 @@ const FIXTURES: Recipe[] = [
     cookTimeMinutes: 60,
     difficulty: DifficultyLevel.HARD,
     tags: ['arroz', 'español'],
+    ingredients: [
+      { id: 'i-p1', name: 'Arroz', quantity: 400, unit: 'g', order: 1 },
+      { id: 'i-p2', name: 'Tomato', quantity: 2, unit: 'unidad', order: 2 },
+      { id: 'i-p3', name: 'Pollo', quantity: 500, unit: 'g', order: 3 },
+    ],
   }),
   buildRecipe({
     id: 'r3',
@@ -175,6 +186,11 @@ const FIXTURES: Recipe[] = [
     cookTimeMinutes: 15,
     difficulty: DifficultyLevel.EASY,
     tags: ['vegano', 'frío', 'sopa'],
+    ingredients: [
+      { id: 'i-g1', name: 'TOMATO', quantity: 1, unit: 'kg', order: 1 },
+      { id: 'i-g2', name: 'Pepino', quantity: 1, unit: 'unidad', order: 2 },
+      { id: 'i-g3', name: 'Ajo', quantity: 2, unit: 'dientes', order: 3 },
+    ],
   }),
   buildRecipe({
     id: 'r4',
@@ -184,6 +200,10 @@ const FIXTURES: Recipe[] = [
     cookTimeMinutes: 120,
     difficulty: DifficultyLevel.MEDIUM,
     tags: ['carne', 'madrileño'],
+    ingredients: [
+      { id: 'i-c1', name: 'Garbanzo', quantity: 500, unit: 'g', order: 1 },
+      { id: 'i-c2', name: 'Carne', quantity: 800, unit: 'g', order: 2 },
+    ],
   }),
 ];
 
@@ -482,6 +502,123 @@ export async function test_ac5_get_recipe_by_slug_returns_detail(): Promise<void
   assert(empty.status === 400, `empty slug should return 400, got ${empty.status}`);
 }
 
+// ── Ingredient-filter ACs (task wXou2A1zyVFwT59KmlEv) ───────────────────────
+
+/** AC1 (ingredient): GET /recipes (no param) returns all recipes — no regression. */
+export async function test_ingredient_ac1_no_param_returns_all(): Promise<void> {
+  const { controller, repo } = buildController();
+  const res = await controller.list(makeReq('http://localhost/api/recipes'));
+  assert(res.status === 200, `expected 200, got ${res.status}`);
+  const body = (await res.json()) as { success: boolean; data: unknown[] };
+  assert(body.success === true, 'success should be true');
+  assert(
+    body.data.length === FIXTURES.length,
+    `expected ${FIXTURES.length} recipes, got ${body.data.length}`,
+  );
+  // Repo should have been called with empty filters — no ingredientName leakage.
+  assert(repo.findManyCalls.length === 1, 'findMany should be called exactly once');
+  assert(
+    repo.findManyCalls[0].filters.ingredientName === undefined,
+    `ingredientName must be undefined when no param provided, got ${JSON.stringify(repo.findManyCalls[0].filters.ingredientName)}`,
+  );
+}
+
+/** AC2 (ingredient): ?ingredient=tomato returns only recipes containing tomato (case-insensitive). */
+export async function test_ingredient_ac2_filter_case_insensitive(): Promise<void> {
+  // lowercase query → matches both 'Tomato' (Paella) and 'TOMATO' (Gazpacho)
+  {
+    const { controller, repo } = buildController();
+    const res = await controller.list(
+      makeReq('http://localhost/api/recipes?ingredient=tomato'),
+    );
+    assert(res.status === 200, `expected 200, got ${res.status}`);
+    const body = (await res.json()) as { data: Array<{ slug: string }> };
+    const slugs = body.data.map((r) => r.slug).sort();
+    assertDeepEqual(slugs, ['gazpacho', 'paella'], 'lowercase ingredient should match both');
+    assert(
+      repo.findManyCalls[0].filters.ingredientName === 'tomato',
+      `expected filters.ingredientName === "tomato", got ${JSON.stringify(repo.findManyCalls[0].filters.ingredientName)}`,
+    );
+  }
+  // Mixed-case query — same two results.
+  {
+    const { controller } = buildController();
+    const res = await controller.list(
+      makeReq('http://localhost/api/recipes?ingredient=ToMaTo'),
+    );
+    assert(res.status === 200, `expected 200, got ${res.status}`);
+    const body = (await res.json()) as { data: Array<{ slug: string }> };
+    const slugs = body.data.map((r) => r.slug).sort();
+    assertDeepEqual(slugs, ['gazpacho', 'paella'], 'mixed-case ingredient should match the same recipes');
+  }
+  // Recipes without tomato (cocido, tortilla) MUST NOT appear.
+  {
+    const { controller } = buildController();
+    const res = await controller.list(
+      makeReq('http://localhost/api/recipes?ingredient=tomato'),
+    );
+    const body = (await res.json()) as { data: Array<{ slug: string }> };
+    for (const item of body.data) {
+      assert(
+        item.slug !== 'tortilla' && item.slug !== 'cocido',
+        `non-tomato recipe leaked into results: ${item.slug}`,
+      );
+    }
+  }
+}
+
+/** AC3 (ingredient): ?ingredient= (empty) is treated as no filter — returns all recipes, no validation error. */
+export async function test_ingredient_ac3_empty_treated_as_no_filter(): Promise<void> {
+  // Empty value
+  {
+    const { controller, repo } = buildController();
+    const res = await controller.list(
+      makeReq('http://localhost/api/recipes?ingredient='),
+    );
+    assert(res.status === 200, `empty ingredient should return 200, got ${res.status}`);
+    const body = (await res.json()) as { success: boolean; data: unknown[] };
+    assert(body.success === true, 'success should be true');
+    assert(
+      body.data.length === FIXTURES.length,
+      `expected all ${FIXTURES.length} recipes, got ${body.data.length}`,
+    );
+    assert(
+      repo.findManyCalls[0].filters.ingredientName === undefined,
+      `empty ingredient must NOT propagate to filters.ingredientName, got ${JSON.stringify(repo.findManyCalls[0].filters.ingredientName)}`,
+    );
+  }
+  // Whitespace-only value — same behaviour.
+  {
+    const { controller, repo } = buildController();
+    const res = await controller.list(
+      makeReq('http://localhost/api/recipes?ingredient=%20%20'),
+    );
+    assert(res.status === 200, `whitespace ingredient should return 200, got ${res.status}`);
+    const body = (await res.json()) as { data: unknown[] };
+    assert(
+      body.data.length === FIXTURES.length,
+      `whitespace ingredient: expected all ${FIXTURES.length} recipes, got ${body.data.length}`,
+    );
+    assert(
+      repo.findManyCalls[0].filters.ingredientName === undefined,
+      'whitespace ingredient must NOT propagate to filters.ingredientName',
+    );
+  }
+}
+
+/** AC4 (ingredient): no match → 200 with [] (NOT 404). */
+export async function test_ingredient_ac4_no_match_returns_200_empty_array(): Promise<void> {
+  const { controller } = buildController();
+  const res = await controller.list(
+    makeReq('http://localhost/api/recipes?ingredient=unicornium'),
+  );
+  assert(res.status === 200, `no match should return 200, got ${res.status}`);
+  const body = (await res.json()) as { success: boolean; data: unknown[] };
+  assert(body.success === true, 'success should be true');
+  assert(Array.isArray(body.data), 'data must be an array');
+  assert(body.data.length === 0, `expected empty array, got ${body.data.length} items`);
+}
+
 // ── Runner ───────────────────────────────────────────────────────────────────
 
 const ALL_TESTS: Record<string, () => Promise<void>> = {
@@ -490,6 +627,10 @@ const ALL_TESTS: Record<string, () => Promise<void>> = {
   test_ac3_difficulty_and_tags_repeatable,
   test_ac4_response_is_array_of_summary_dto,
   test_ac5_get_recipe_by_slug_returns_detail,
+  test_ingredient_ac1_no_param_returns_all,
+  test_ingredient_ac2_filter_case_insensitive,
+  test_ingredient_ac3_empty_treated_as_no_filter,
+  test_ingredient_ac4_no_match_returns_200_empty_array,
 };
 
 async function main(): Promise<void> {

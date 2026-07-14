@@ -18,6 +18,11 @@ export interface SearchRecipesQuery {
   maxCookTime?: number;
   /** All listed tags must be present on the recipe. AND semantics. */
   tags?: string[];
+  /**
+   * Case-insensitive partial match against any ingredient name. Empty or
+   * whitespace-only is treated as "no ingredient filter".
+   */
+  ingredient?: string;
   /** Pagination (1-indexed page). Defaults applied by the use case. */
   page?: number;
   pageSize?: number;

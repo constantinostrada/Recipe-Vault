@@ -27,6 +27,12 @@ export interface RecipeFilters {
   maxCookTimeMinutes?: number;
   /** Free-text search over name / description (ILIKE). */
   searchTerm?: string;
+  /**
+   * Case-insensitive partial match against any ingredient name on the recipe.
+   * A recipe matches if at least one of its ingredients' names contains this
+   * substring (ILIKE). Empty/undefined means "no ingredient filter".
+   */
+  ingredientName?: string;
 }
 
 export interface PaginationOptions {

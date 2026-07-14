@@ -54,6 +54,7 @@ const searchQuerySchema = z.object({
     .optional(),
   maxCookTime: positiveInt.optional(),
   tags: z.array(z.string().trim().min(1, 'tags entries must be non-empty')).optional(),
+  ingredient: optionalString,
   page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().max(50).optional(),
 });
@@ -79,17 +80,26 @@ export class RecipeController {
    *   difficulty    repeatable: ?difficulty=easy&difficulty=hard
    *   maxCookTime   positive integer
    *   tags          repeatable: ?tags=vegan&tags=fast
+   *   ingredient    case-insensitive partial match against ingredient names
    *   page          1-indexed, default 1
    *   pageSize      default 12, max 50
    */
   list = async (req: NextRequest): Promise<NextResponse> => {
     try {
       const params = req.nextUrl.searchParams;
+      // Empty/whitespace-only `?ingredient=` is treated as "no filter" (AC3),
+      // so normalise it BEFORE zod validation — optionalString rejects empty.
+      const rawIngredient = params.get('ingredient');
+      const ingredient =
+        rawIngredient !== null && rawIngredient.trim().length > 0
+          ? rawIngredient
+          : undefined;
       const raw = {
         q: params.get('q') ?? undefined,
         difficulty: params.getAll('difficulty'),
         maxCookTime: params.get('maxCookTime') ?? undefined,
         tags: params.getAll('tags'),
+        ingredient,
         page: params.get('page') ?? undefined,
         pageSize: params.get('pageSize') ?? undefined,
       };
@@ -107,6 +117,7 @@ export class RecipeController {
       if (parsed.difficulty !== undefined) query.difficulty = parsed.difficulty;
       if (parsed.maxCookTime !== undefined) query.maxCookTime = parsed.maxCookTime;
       if (parsed.tags !== undefined) query.tags = parsed.tags;
+      if (parsed.ingredient !== undefined) query.ingredient = parsed.ingredient;
       if (parsed.page !== undefined) query.page = parsed.page;
       if (parsed.pageSize !== undefined) query.pageSize = parsed.pageSize;
 

@@ -125,6 +125,19 @@ export class PrismaRecipeRepository implements IRecipeRepository {
       }
     }
 
+    if (
+      filters.ingredientName !== undefined &&
+      filters.ingredientName.trim().length > 0
+    ) {
+      and.push({
+        ingredients: {
+          some: {
+            name: { contains: filters.ingredientName, mode: 'insensitive' },
+          },
+        },
+      });
+    }
+
     const where: Prisma.RecipeWhereInput = and.length > 0 ? { AND: and } : {};
 
     const skip = (pagination.page - 1) * pagination.pageSize;
