@@ -42,6 +42,7 @@ import type {
 
 import { SearchRecipesUseCase } from '../src/application/use-cases/recipe/SearchRecipesUseCase';
 import { GetRecipeBySlugUseCase } from '../src/application/use-cases/recipe/GetRecipeBySlugUseCase';
+import { RateRecipeUseCase } from '../src/application/use-cases/recipe/RateRecipeUseCase';
 
 import { RecipeController } from '../src/interfaces/http/controllers/RecipeController';
 
@@ -106,6 +107,14 @@ class InMemoryRecipeRepository implements IRecipeRepository {
   }
   async exists(id: string): Promise<boolean> {
     return this.recipes.some((r) => r.id === id);
+  }
+  async saveRating(): Promise<void> {}
+  async getAverageRatingsByRecipeIds(
+    recipeIds: string[],
+  ): Promise<Map<string, number | null>> {
+    const out = new Map<string, number | null>();
+    for (const id of recipeIds) out.set(id, null);
+    return out;
   }
 }
 
@@ -205,6 +214,7 @@ function buildController(recipes: Recipe[] = FIXTURES): {
   const controller = new RecipeController(
     new SearchRecipesUseCase(repo),
     new GetRecipeBySlugUseCase(repo),
+    new RateRecipeUseCase(repo),
   );
   return { controller, repo };
 }
@@ -380,6 +390,7 @@ export async function test_ac4_response_is_array_of_summary_dto(): Promise<void>
     'difficulty',
     'tags',
     'imageUrl',
+    'averageRating',
   ]);
   const FORBIDDEN_INTERNAL_KEYS = [
     'ingredients',

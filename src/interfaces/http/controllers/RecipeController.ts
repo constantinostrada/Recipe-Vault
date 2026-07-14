@@ -27,10 +27,11 @@ import { z } from 'zod';
 
 import type { SearchRecipesUseCase } from '@/application/use-cases/recipe/SearchRecipesUseCase';
 import type { GetRecipeBySlugUseCase } from '@/application/use-cases/recipe/GetRecipeBySlugUseCase';
+import type { RateRecipeUseCase } from '@/application/use-cases/recipe/RateRecipeUseCase';
 import type { SearchRecipesQuery } from '@/application/dtos/SearchRecipesDto';
 import { container } from '@/infrastructure/container';
 
-import { errorResponse, successResponse } from '../helpers/apiResponse';
+import { createdResponse, errorResponse, successResponse } from '../helpers/apiResponse';
 
 // ── Validation schema ───────────────────────────────────────────────────────
 
@@ -63,12 +64,24 @@ const slugParamSchema = z
   .trim()
   .min(1, { message: 'slug must be a non-empty string' });
 
+const rateBodySchema = z.object({
+  rating: z
+    .number({
+      required_error: 'rating is required',
+      invalid_type_error: 'rating must be a number',
+    })
+    .int({ message: 'rating must be an integer' })
+    .min(1, { message: 'rating must be between 1 and 5' })
+    .max(5, { message: 'rating must be between 1 and 5' }),
+});
+
 // ── Controller ──────────────────────────────────────────────────────────────
 
 export class RecipeController {
   constructor(
     private readonly searchRecipesUseCase: SearchRecipesUseCase,
     private readonly getRecipeBySlugUseCase: GetRecipeBySlugUseCase,
+    private readonly rateRecipeUseCase: RateRecipeUseCase,
   ) {}
 
   /**
@@ -140,6 +153,50 @@ export class RecipeController {
       return errorResponse(err);
     }
   };
+
+  /**
+   * POST /api/recipes/:slug/rate
+   * Body: { rating: 1..5 }
+   * Returns 201 with the persisted Rating DTO. Validation errors return 400.
+   */
+  rate = async (
+    req: NextRequest,
+    { params }: { params: { slug: string } },
+  ): Promise<NextResponse> => {
+    try {
+      const slug = slugParamSchema.parse(params?.slug);
+      const body = (await safeJsonBody(req)) as unknown;
+      if (body === undefined || body === null || typeof body !== 'object') {
+        return validationErrorResponseFromMessage('rating is required');
+      }
+      const parsed = rateBodySchema.parse(body);
+      const result = await this.rateRecipeUseCase.execute({
+        slug,
+        rating: parsed.rating,
+      });
+      return createdResponse(result);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return validationErrorResponse(err);
+      }
+      return errorResponse(err);
+    }
+  };
+}
+
+async function safeJsonBody(req: NextRequest): Promise<unknown> {
+  try {
+    return await req.json();
+  } catch {
+    return null;
+  }
+}
+
+function validationErrorResponseFromMessage(message: string): NextResponse {
+  return NextResponse.json(
+    { success: false, error: { message, code: 'VALIDATION_ERROR' } },
+    { status: 400 },
+  );
 }
 
 function validationErrorResponse(err: z.ZodError): NextResponse {
@@ -162,4 +219,5 @@ function validationErrorResponse(err: z.ZodError): NextResponse {
 export const recipeController = new RecipeController(
   container.searchRecipesUseCase,
   container.getRecipeBySlugUseCase,
+  container.rateRecipeUseCase,
 );

@@ -32,6 +32,8 @@ export interface RecipeSearchResultItem {
   difficulty: DifficultyLevelValue;
   tags: string[];
   imageUrl: string | null;
+  /** Average rating across all submitted ratings, rounded to 1 decimal. Null when no ratings exist. */
+  averageRating: number | null;
 }
 
 export interface SearchRecipesResult {

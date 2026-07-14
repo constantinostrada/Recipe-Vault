@@ -28,11 +28,14 @@ export class GetRecipeBySlugUseCase {
     if (!recipe) {
       throw new RecipeNotFoundError(input.slug);
     }
-    return toDetailDto(recipe);
+    const averages = await this.recipeRepository.getAverageRatingsByRecipeIds([
+      recipe.id,
+    ]);
+    return toDetailDto(recipe, roundAverage(averages.get(recipe.id) ?? null));
   }
 }
 
-function toDetailDto(recipe: Recipe): RecipeDetailDto {
+function toDetailDto(recipe: Recipe, averageRating: number | null): RecipeDetailDto {
   return {
     id: recipe.id,
     slug: recipe.slug.value,
@@ -42,6 +45,7 @@ function toDetailDto(recipe: Recipe): RecipeDetailDto {
     difficulty: recipe.difficulty.value,
     tags: [...recipe.tags],
     imageUrl: recipe.imageUrl,
+    averageRating,
     ingredients: recipe.ingredients.map((i) => ({
       id: i.id,
       name: i.name,
@@ -55,4 +59,10 @@ function toDetailDto(recipe: Recipe): RecipeDetailDto {
       order: s.order,
     })),
   };
+}
+
+/** AC-4: surface averages rounded to a single decimal (e.g. 3.666… → 3.7). */
+function roundAverage(value: number | null): number | null {
+  if (value === null) return null;
+  return Math.round(value * 10) / 10;
 }

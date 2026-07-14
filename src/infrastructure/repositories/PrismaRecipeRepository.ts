@@ -15,6 +15,7 @@
 
 import type { Prisma } from '@prisma/client';
 
+import type { Rating } from '@/domain/entities/Rating';
 import { Recipe } from '@/domain/entities/Recipe';
 import {
   DomainError,
@@ -152,6 +153,43 @@ export class PrismaRecipeRepository implements IRecipeRepository {
   async exists(id: string): Promise<boolean> {
     const count = await prisma.recipe.count({ where: { id } });
     return count > 0;
+  }
+
+  async saveRating(rating: Rating): Promise<void> {
+    try {
+      await prisma.recipeRating.create({
+        data: {
+          id: rating.id,
+          recipeId: rating.recipeId,
+          value: rating.value,
+          createdAt: rating.createdAt,
+        },
+      });
+    } catch (err) {
+      this.handlePrismaError(err, rating.id, 'save rating');
+    }
+  }
+
+  async getAverageRatingsByRecipeIds(
+    recipeIds: string[],
+  ): Promise<Map<string, number | null>> {
+    const out = new Map<string, number | null>();
+    if (recipeIds.length === 0) return out;
+
+    // Initialise every requested id to null so unrated recipes are explicit.
+    for (const id of recipeIds) out.set(id, null);
+
+    const grouped = await prisma.recipeRating.groupBy({
+      by: ['recipeId'],
+      where: { recipeId: { in: recipeIds } },
+      _avg: { value: true },
+    });
+
+    for (const row of grouped) {
+      const avg = row._avg.value;
+      out.set(row.recipeId, typeof avg === 'number' ? avg : null);
+    }
+    return out;
   }
 
   private handlePrismaError(err: unknown, id: string, operation: string): never {

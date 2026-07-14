@@ -81,6 +81,14 @@ class MockRecipeRepository implements IRecipeRepository {
   async exists(): Promise<boolean> {
     return false;
   }
+  async saveRating(): Promise<void> {}
+  async getAverageRatingsByRecipeIds(
+    recipeIds: string[],
+  ): Promise<Map<string, number | null>> {
+    const out = new Map<string, number | null>();
+    for (const id of recipeIds) out.set(id, null);
+    return out;
+  }
 }
 
 function buildRecipe(overrides: Partial<{
