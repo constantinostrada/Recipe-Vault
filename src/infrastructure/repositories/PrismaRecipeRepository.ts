@@ -13,7 +13,7 @@
  * the Recipe domain entity — the domain itself has zero Prisma awareness.
  */
 
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 
 import { Recipe } from '@/domain/entities/Recipe';
 import {
@@ -117,12 +117,28 @@ export class PrismaRecipeRepository implements IRecipeRepository {
     }
 
     if (filters.tags !== undefined && filters.tags.length > 0) {
-      // tags column is a JSON array. The interface contract says
-      // "recipe must contain ALL listed tags" — AND of array_contains
-      // per requested tag.
-      for (const tag of filters.tags) {
-        and.push({ tags: { array_contains: tag } });
-      }
+      // The recipes.tags column is JSONB. We need AND semantics across the
+      // requested tags AND case-insensitive matching ("Vegetarian" must
+      // match "vegetarian"). Prisma's `array_contains` is case-sensitive,
+      // so we drop to raw SQL using jsonb_array_elements_text:
+      //   EXISTS (SELECT 1 FROM jsonb_array_elements_text("tags") AS t(value)
+      //           WHERE LOWER(t.value) = LOWER($tag))
+      // We resolve to matching ids first, then plug `id IN (...)` into the
+      // findMany pipeline so pagination / ordering / other filters stay
+      // expressed through Prisma's query builder.
+      const tagPredicates = Prisma.join(
+        filters.tags.map(
+          (tag) => Prisma.sql`EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text("tags") AS t(value)
+            WHERE LOWER(t.value) = LOWER(${tag})
+          )`,
+        ),
+        ' AND ',
+      );
+      const matched = await prisma.$queryRaw<{ id: string }[]>(
+        Prisma.sql`SELECT id FROM "recipes" WHERE ${tagPredicates}`,
+      );
+      and.push({ id: { in: matched.map((r) => r.id) } });
     }
 
     const where: Prisma.RecipeWhereInput = and.length > 0 ? { AND: and } : {};

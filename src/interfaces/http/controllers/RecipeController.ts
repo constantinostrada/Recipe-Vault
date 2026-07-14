@@ -1,21 +1,19 @@
 /**
  * src/interfaces/http/controllers/RecipeController.ts
  *
- * Thin HTTP controller for the Recipe read API.
+ * Thin HTTP controller for the Recipe API.
  *
- *   GET /api/recipes           → list recipes (filters via query params)
- *   GET /api/recipes/:slug     → recipe detail (ingredients + steps)
+ *   GET    /api/recipes           → list / filter recipes
+ *   POST   /api/recipes           → create a new recipe (with tags)
+ *   GET    /api/recipes/:slug     → recipe detail (ingredients + steps)
+ *   PUT    /api/recipes/:slug     → update an existing recipe (with tags)
  *
  * Responsibilities:
- *   1. Validate / parse incoming query + path params with Zod.
- *   2. Map params to the use-case input (SearchRecipesQuery / { slug }).
+ *   1. Validate / parse incoming params (query, path, body) with Zod.
+ *   2. Map params to the use-case input.
  *   3. Serialise the use-case output to a JSON HTTP response.
  *
- * No business logic. All rules live in domain/application. The legacy
- * mutation endpoints (POST/PATCH/DELETE/publish) referenced use cases
- * that were rewritten away in earlier tasks; they have been removed
- * from this controller and from their route handlers. Realigning those
- * use cases is the responsibility of a separate task.
+ * No business logic. All rules live in domain/application.
  *
  * Imports: application (DTOs, use cases via container), interfaces helpers.
  * Does NOT import infrastructure directly.
@@ -27,10 +25,12 @@ import { z } from 'zod';
 
 import type { SearchRecipesUseCase } from '@/application/use-cases/recipe/SearchRecipesUseCase';
 import type { GetRecipeBySlugUseCase } from '@/application/use-cases/recipe/GetRecipeBySlugUseCase';
+import type { AddRecipeUseCase } from '@/application/use-cases/recipe/AddRecipeUseCase';
+import type { EditRecipeUseCase } from '@/application/use-cases/recipe/EditRecipeUseCase';
 import type { SearchRecipesQuery } from '@/application/dtos/SearchRecipesDto';
 import { container } from '@/infrastructure/container';
 
-import { errorResponse, successResponse } from '../helpers/apiResponse';
+import { createdResponse, errorResponse, successResponse } from '../helpers/apiResponse';
 
 // ── Validation schema ───────────────────────────────────────────────────────
 
@@ -63,12 +63,49 @@ const slugParamSchema = z
   .trim()
   .min(1, { message: 'slug must be a non-empty string' });
 
+const tagsArraySchema = z
+  .array(z.string().trim().min(1, 'tag entries must be non-empty'))
+  .optional();
+
+const ingredientInputSchema = z.object({
+  name: z.string().trim().min(1, 'ingredient name must be non-empty'),
+  quantity: z.number().positive('ingredient quantity must be > 0'),
+  unit: z.string().trim().min(1, 'ingredient unit must be non-empty'),
+});
+
+const stepInputSchema = z.object({
+  instruction: z.string().trim().min(1, 'step instruction must be non-empty'),
+});
+
+const createRecipeBodySchema = z.object({
+  slug: z.string().trim().min(1).optional(),
+  name: z.string().trim().min(1, 'name must be non-empty'),
+  description: z.string().nullable().optional(),
+  cookTimeMinutes: z.number().int().positive('cookTimeMinutes must be a positive integer'),
+  difficulty: z.enum(DIFFICULTY_VALUES, { invalid_type_error: 'invalid difficulty' }),
+  tags: tagsArraySchema,
+  imageUrl: z.string().nullable().optional(),
+  ingredients: z.array(ingredientInputSchema).optional(),
+  steps: z.array(stepInputSchema).optional(),
+});
+
+const updateRecipeBodySchema = z.object({
+  name: z.string().trim().min(1, 'name must be non-empty').optional(),
+  description: z.string().nullable().optional(),
+  cookTimeMinutes: z.number().int().positive('cookTimeMinutes must be a positive integer').optional(),
+  difficulty: z.enum(DIFFICULTY_VALUES, { invalid_type_error: 'invalid difficulty' }).optional(),
+  tags: tagsArraySchema,
+  imageUrl: z.string().nullable().optional(),
+});
+
 // ── Controller ──────────────────────────────────────────────────────────────
 
 export class RecipeController {
   constructor(
     private readonly searchRecipesUseCase: SearchRecipesUseCase,
     private readonly getRecipeBySlugUseCase: GetRecipeBySlugUseCase,
+    private readonly addRecipeUseCase?: AddRecipeUseCase,
+    private readonly editRecipeUseCase?: EditRecipeUseCase,
   ) {}
 
   /**
@@ -79,17 +116,28 @@ export class RecipeController {
    *   difficulty    repeatable: ?difficulty=easy&difficulty=hard
    *   maxCookTime   positive integer
    *   tags          repeatable: ?tags=vegan&tags=fast
+   *   tag           singular alias of `tags`: ?tag=vegetarian
+   *                 (merged into the tags array; AND semantics)
    *   page          1-indexed, default 1
    *   pageSize      default 12, max 50
    */
   list = async (req: NextRequest): Promise<NextResponse> => {
     try {
       const params = req.nextUrl.searchParams;
+      // `?tags=` (repeatable) and `?tag=` (also repeatable) are both
+      // accepted and merged. Singular form is the documented API for
+      // the simple "filter by one tag" case.
+      const tagsFromArrayParam = params.getAll('tags');
+      const tagsFromSingularParam = params.getAll('tag');
+      const allTags = [...tagsFromArrayParam, ...tagsFromSingularParam].filter(
+        (t) => t.trim().length > 0,
+      );
+
       const raw = {
         q: params.get('q') ?? undefined,
         difficulty: params.getAll('difficulty'),
         maxCookTime: params.get('maxCookTime') ?? undefined,
-        tags: params.getAll('tags'),
+        tags: allTags,
         page: params.get('page') ?? undefined,
         pageSize: params.get('pageSize') ?? undefined,
       };
@@ -111,7 +159,6 @@ export class RecipeController {
       if (parsed.pageSize !== undefined) query.pageSize = parsed.pageSize;
 
       const result = await this.searchRecipesUseCase.execute(query);
-      // AC-4: response is a flat array of RecipeSummaryDTO (no internal aggregate fields).
       return successResponse(result.data);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -132,6 +179,76 @@ export class RecipeController {
     try {
       const slug = slugParamSchema.parse(params?.slug);
       const result = await this.getRecipeBySlugUseCase.execute({ slug });
+      return successResponse(result);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return validationErrorResponse(err);
+      }
+      return errorResponse(err);
+    }
+  };
+
+  /**
+   * POST /api/recipes
+   * Creates a new recipe. Body shape:
+   *   { name, cookTimeMinutes, difficulty, tags?, description?,
+   *     imageUrl?, ingredients?, steps?, slug? }
+   * Returns 201 + { success, data: RecipeDetailDto } on success.
+   */
+  create = async (req: NextRequest): Promise<NextResponse> => {
+    try {
+      if (!this.addRecipeUseCase) {
+        throw new Error('AddRecipeUseCase not configured on this controller.');
+      }
+      const body = await req.json();
+      const parsed = createRecipeBodySchema.parse(body);
+      const result = await this.addRecipeUseCase.execute({
+        slug: parsed.slug,
+        name: parsed.name,
+        description: parsed.description ?? null,
+        cookTimeMinutes: parsed.cookTimeMinutes,
+        difficulty: parsed.difficulty,
+        tags: parsed.tags,
+        imageUrl: parsed.imageUrl ?? null,
+        ingredients: parsed.ingredients,
+        steps: parsed.steps,
+      });
+      return createdResponse(result);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return validationErrorResponse(err);
+      }
+      return errorResponse(err);
+    }
+  };
+
+  /**
+   * PUT /api/recipes/:slug
+   * Updates an existing recipe identified by its slug. Body shape:
+   *   { name?, cookTimeMinutes?, difficulty?, tags?, description?, imageUrl? }
+   * Returns 200 + { success, data: RecipeDetailDto } on success,
+   * 404 if the slug is unknown.
+   */
+  update = async (
+    req: NextRequest,
+    { params }: { params: { slug: string } },
+  ): Promise<NextResponse> => {
+    try {
+      if (!this.editRecipeUseCase) {
+        throw new Error('EditRecipeUseCase not configured on this controller.');
+      }
+      const slug = slugParamSchema.parse(params?.slug);
+      const body = await req.json();
+      const parsed = updateRecipeBodySchema.parse(body);
+      const result = await this.editRecipeUseCase.execute({
+        slug,
+        name: parsed.name,
+        description: parsed.description,
+        cookTimeMinutes: parsed.cookTimeMinutes,
+        difficulty: parsed.difficulty,
+        tags: parsed.tags,
+        imageUrl: parsed.imageUrl,
+      });
       return successResponse(result);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -162,4 +279,6 @@ function validationErrorResponse(err: z.ZodError): NextResponse {
 export const recipeController = new RecipeController(
   container.searchRecipesUseCase,
   container.getRecipeBySlugUseCase,
+  container.addRecipeUseCase,
+  container.editRecipeUseCase,
 );
