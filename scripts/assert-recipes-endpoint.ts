@@ -482,6 +482,83 @@ export async function test_ac5_get_recipe_by_slug_returns_detail(): Promise<void
   assert(empty.status === 400, `empty slug should return 400, got ${empty.status}`);
 }
 
+/**
+ * AC: maxCookTime filtered case.
+ *
+ * GET /api/recipes?maxCookTime=30 must return only recipes whose
+ * cookTimeMinutes is <= 30 (inclusive boundary). Fixture subset:
+ *   r1 tortilla   cookTimeMinutes=30   ✓
+ *   r2 paella     cookTimeMinutes=60   ✗
+ *   r3 gazpacho   cookTimeMinutes=15   ✓
+ *   r4 cocido     cookTimeMinutes=120  ✗
+ * Also proves the filter was delegated to persistence (AC: DB-level
+ * filtering) by inspecting `repo.findManyCalls[0].filters.maxCookTimeMinutes`.
+ */
+export async function test_maxcooktime_filtered_case_returns_subset(): Promise<void> {
+  const { controller, repo } = buildController();
+  const res = await controller.list(makeReq('http://localhost/api/recipes?maxCookTime=30'));
+  assert(res.status === 200, `expected 200, got ${res.status}`);
+  const body = (await res.json()) as {
+    success: boolean;
+    data: Array<{ slug: string; cookTimeMinutes: number }>;
+  };
+  assert(body.success === true, 'success flag should be true');
+  assert(Array.isArray(body.data), 'data should be an array');
+  assert(body.data.length === 2, `expected 2 recipes with cookTimeMinutes<=30, got ${body.data.length}`);
+  const slugs = body.data.map((r) => r.slug).sort();
+  assertDeepEqual(slugs, ['gazpacho', 'tortilla'], 'filtered slugs should be exactly tortilla + gazpacho');
+  for (const item of body.data) {
+    assert(
+      item.cookTimeMinutes <= 30,
+      `every returned recipe must satisfy cookTimeMinutes<=30 (got ${item.cookTimeMinutes} for ${item.slug})`,
+    );
+  }
+  // Prove the filter was delegated to persistence (no in-memory filtering at
+  // the controller / use-case layer). The repo records every findMany call.
+  assert(repo.findManyCalls.length === 1, 'findMany should be called exactly once');
+  assert(
+    repo.findManyCalls[0].filters.maxCookTimeMinutes === 30,
+    `repo must receive maxCookTimeMinutes=30 in filters, got ${repo.findManyCalls[0].filters.maxCookTimeMinutes}`,
+  );
+}
+
+/**
+ * AC: maxCookTime validation.
+ *
+ * Non-numeric, zero, and negative values must yield 400 with a clear
+ * VALIDATION_ERROR mentioning the offending field.
+ */
+export async function test_maxcooktime_invalid_returns_400(): Promise<void> {
+  const cases: Array<{ url: string; label: string }> = [
+    { url: 'http://localhost/api/recipes?maxCookTime=not-a-number', label: 'non-numeric' },
+    { url: 'http://localhost/api/recipes?maxCookTime=0', label: 'zero' },
+    { url: 'http://localhost/api/recipes?maxCookTime=-5', label: 'negative' },
+  ];
+
+  for (const c of cases) {
+    const { controller } = buildController();
+    const res = await controller.list(makeReq(c.url));
+    assert(res.status === 400, `${c.label}: expected 400, got ${res.status}`);
+    const body = (await res.json()) as {
+      success: boolean;
+      error: { code: string; message: string };
+    };
+    assert(body.success === false, `${c.label}: success should be false`);
+    assert(
+      body.error.code === 'VALIDATION_ERROR',
+      `${c.label}: error code should be VALIDATION_ERROR, got ${body.error.code}`,
+    );
+    assert(
+      typeof body.error.message === 'string' && body.error.message.length > 0,
+      `${c.label}: error message should be a non-empty string`,
+    );
+    assert(
+      /maxCookTime/i.test(body.error.message),
+      `${c.label}: error message "${body.error.message}" should mention "maxCookTime"`,
+    );
+  }
+}
+
 // ── Runner ───────────────────────────────────────────────────────────────────
 
 const ALL_TESTS: Record<string, () => Promise<void>> = {
@@ -490,6 +567,8 @@ const ALL_TESTS: Record<string, () => Promise<void>> = {
   test_ac3_difficulty_and_tags_repeatable,
   test_ac4_response_is_array_of_summary_dto,
   test_ac5_get_recipe_by_slug_returns_detail,
+  test_maxcooktime_filtered_case_returns_subset,
+  test_maxcooktime_invalid_returns_400,
 };
 
 async function main(): Promise<void> {
