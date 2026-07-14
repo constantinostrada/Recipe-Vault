@@ -69,6 +69,7 @@ model User {
 
   accounts Account[]
   sessions Session[]
+  ratings  Rating[]
 
   @@map("users")
 }
@@ -95,6 +96,7 @@ model Recipe {
 
   ingredients RecipeIngredient[]
   steps       RecipeStep[]
+  ratings     Rating[]
 
   @@map("recipes")
 }
@@ -123,4 +125,24 @@ model RecipeStep {
 
   @@unique([recipeId, order])
   @@map("recipe_steps")
+}
+
+// ─────────────────────────────────────────────
+// Rating: User → Recipe star rating (1..5)
+// ─────────────────────────────────────────────
+
+model Rating {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  recipeId  String   @map("recipe_id") @db.Uuid
+  stars     Int
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, recipeId])
+  @@index([recipeId])
+  @@map("ratings")
 }

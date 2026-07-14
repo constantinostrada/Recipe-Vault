@@ -17,6 +17,9 @@
  * long-running server you would use a proper IoC library.
  */
 
+import { GetRecipeRatingStatsUseCase } from '@/application/use-cases/rating/GetRecipeRatingStatsUseCase';
+import { RateRecipeUseCase } from '@/application/use-cases/rating/RateRecipeUseCase';
+import { RemoveRatingUseCase } from '@/application/use-cases/rating/RemoveRatingUseCase';
 import { CreateRecipeUseCase } from '@/application/use-cases/recipe/CreateRecipeUseCase';
 import { DeleteRecipeUseCase } from '@/application/use-cases/recipe/DeleteRecipeUseCase';
 import { GetRecipeUseCase } from '@/application/use-cases/recipe/GetRecipeUseCase';
@@ -28,6 +31,7 @@ import { UpdateRecipeUseCase } from '@/application/use-cases/recipe/UpdateRecipe
 import { GetUserProfileUseCase } from '@/application/use-cases/user/GetUserProfileUseCase';
 import { UpdateUserProfileUseCase } from '@/application/use-cases/user/UpdateUserProfileUseCase';
 
+import { PrismaRatingRepository } from './repositories/PrismaRatingRepository';
 import { PrismaRecipeRepository } from './repositories/PrismaRecipeRepository';
 import { PrismaUserRepository } from './repositories/PrismaUserRepository';
 
@@ -35,6 +39,7 @@ function buildContainer() {
   // ── Repositories ───────────────────────────────────────────────────────
   const recipeRepository = new PrismaRecipeRepository();
   const userRepository = new PrismaUserRepository();
+  const ratingRepository = new PrismaRatingRepository();
 
   // ── Use cases ──────────────────────────────────────────────────────────
   return {
@@ -51,6 +56,14 @@ function buildContainer() {
     // User
     getUserProfileUseCase: new GetUserProfileUseCase(userRepository),
     updateUserProfileUseCase: new UpdateUserProfileUseCase(userRepository),
+
+    // Rating
+    rateRecipeUseCase: new RateRecipeUseCase(recipeRepository, ratingRepository),
+    removeRatingUseCase: new RemoveRatingUseCase(recipeRepository, ratingRepository),
+    getRecipeRatingStatsUseCase: new GetRecipeRatingStatsUseCase(
+      recipeRepository,
+      ratingRepository,
+    ),
   } as const;
 }
 
