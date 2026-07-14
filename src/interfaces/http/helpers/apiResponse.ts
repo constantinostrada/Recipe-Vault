@@ -52,7 +52,7 @@ export function errorResponse(err: unknown): NextResponse<ApiErrorResponse> {
   if (err instanceof UnauthorizedError) {
     return NextResponse.json(
       { success: false, error: { message: err.message, code: 'UNAUTHORIZED' } },
-      { status: 403 },
+      { status: 401 },
     );
   }
 

@@ -3,11 +3,10 @@
  *
  * Next.js App Router route handler for /api/recipes.
  *
- *   GET /api/recipes  → list / search recipes (filters via query params)
+ *   GET  /api/recipes  → list / search recipes (filters via query params)
+ *   POST /api/recipes  → create a new recipe (auth required)
  *
- * Mutation endpoints (POST/PATCH/DELETE/publish) were removed when the
- * Recipe aggregate was rewritten; they will be reintroduced by the
- * dedicated realign task. All logic is delegated to RecipeController.
+ * All logic is delegated to RecipeController.
  */
 
 import type { NextRequest } from 'next/server';
@@ -16,4 +15,8 @@ import { recipeController } from '@/interfaces/http/controllers/RecipeController
 
 export async function GET(req: NextRequest) {
   return recipeController.list(req);
+}
+
+export async function POST(req: NextRequest) {
+  return recipeController.createRecipe(req);
 }
