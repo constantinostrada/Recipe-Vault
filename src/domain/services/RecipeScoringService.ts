@@ -1,67 +1,102 @@
 /**
  * src/domain/services/RecipeScoringService.ts
  *
- * Domain Service: encapsulates business logic that spans multiple domain
- * concepts and doesn't naturally belong to a single entity.
+ * Domain Service: assigns a search-relevance score to a Recipe given a free-text
+ * query, and exposes a sort helper for ordering search results.
  *
- * Calculates a "completeness score" for a recipe to guide users toward
- * providing rich data before publishing.
+ * Ranking precedence (highest to lowest):
+ *   1. match in recipe.name        (strongest signal)
+ *   2. match in recipe.description
+ *   3. number of matching tags     (additive, weaker than a single name match)
  *
- * Imports: domain only — zero third-party dependencies.
+ * The weights below are chosen so that the ordering invariants hold for any
+ * realistic number of tags (a recipe could not plausibly hold >9 matching
+ * tags, and even 9 tag hits stay below a single name match).
+ *
+ * Imports: domain only — zero third-party dependencies (domain/CLAUDE.md rule).
  */
 
 import type { Recipe } from '../entities/Recipe';
 
+export interface RecipeScoreBreakdown {
+  nameMatch: boolean;
+  descriptionMatch: boolean;
+  matchingTagCount: number;
+}
+
 export interface RecipeScore {
-  /** 0–100 */
+  recipeId: string;
   total: number;
-  breakdown: {
-    hasDescription: boolean;
-    hasIngredients: boolean;
-    hasSteps: boolean;
-    hasTags: boolean;
-    hasTimes: boolean;
-  };
-  isReadyToPublish: boolean;
+  breakdown: RecipeScoreBreakdown;
 }
 
 export class RecipeScoringService {
-  private static readonly WEIGHTS = {
-    hasDescription: 20,
-    hasIngredients: 25,
-    hasSteps: 30,
-    hasTags: 10,
-    hasTimes: 15,
-  };
+  static readonly WEIGHTS = {
+    nameMatch: 100,
+    descriptionMatch: 25,
+    perMatchingTag: 10,
+  } as const;
 
-  /** Returns a completeness score with a breakdown per criterion. */
-  score(recipe: Recipe): RecipeScore {
-    const breakdown = {
-      hasDescription:
-        recipe.description !== null && recipe.description.trim().length >= 20,
-      hasIngredients: recipe.ingredients.length >= 1,
-      hasSteps: recipe.steps.length >= 1,
-      hasTags: recipe.tags.length >= 1,
-      hasTimes: recipe.prepTimeMin > 0 || recipe.cookTimeMin > 0,
-    };
+  /**
+   * Computes a relevance score for a single recipe against the query.
+   * Matching is case-insensitive substring match. An empty/whitespace-only
+   * query yields total = 0 and no matches (the caller decides what to do
+   * with an unfiltered list).
+   */
+  score(recipe: Recipe, query: string): RecipeScore {
+    const needle = normalise(query);
+    if (needle.length === 0) {
+      return {
+        recipeId: recipe.id,
+        total: 0,
+        breakdown: { nameMatch: false, descriptionMatch: false, matchingTagCount: 0 },
+      };
+    }
 
-    const total = (Object.keys(breakdown) as Array<keyof typeof breakdown>).reduce(
-      (sum, key) => sum + (breakdown[key] ? RecipeScoringService.WEIGHTS[key] : 0),
-      0,
-    );
+    const nameMatch = recipe.name.toLowerCase().includes(needle);
+    const descriptionMatch =
+      recipe.description !== null &&
+      recipe.description.toLowerCase().includes(needle);
+
+    let matchingTagCount = 0;
+    for (const tag of recipe.tags) {
+      if (tag.toLowerCase().includes(needle)) matchingTagCount += 1;
+    }
+
+    const total =
+      (nameMatch ? RecipeScoringService.WEIGHTS.nameMatch : 0) +
+      (descriptionMatch ? RecipeScoringService.WEIGHTS.descriptionMatch : 0) +
+      matchingTagCount * RecipeScoringService.WEIGHTS.perMatchingTag;
 
     return {
+      recipeId: recipe.id,
       total,
-      breakdown,
-      isReadyToPublish: breakdown.hasIngredients && breakdown.hasSteps && total >= 60,
+      breakdown: { nameMatch, descriptionMatch, matchingTagCount },
     };
   }
 
   /**
-   * Compares two recipes and returns the one with the higher score.
-   * Used when surfacing "featured" recipes.
+   * Returns the recipes sorted by relevance to `query` (descending). Stable
+   * on ties: the original relative order is preserved.
+   *
+   * If the query is empty/whitespace-only every recipe scores zero and the
+   * original order is returned unchanged.
    */
-  selectHigherScored(a: Recipe, b: Recipe): Recipe {
-    return this.score(a).total >= this.score(b).total ? a : b;
+  sortByRelevance(recipes: ReadonlyArray<Recipe>, query: string): Recipe[] {
+    const decorated = recipes.map((recipe, index) => ({
+      recipe,
+      index,
+      score: this.score(recipe, query).total,
+    }));
+    decorated.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.index - b.index;
+    });
+    return decorated.map((d) => d.recipe);
   }
+}
+
+function normalise(query: string): string {
+  if (typeof query !== 'string') return '';
+  return query.trim().toLowerCase();
 }
