@@ -17,6 +17,9 @@
  * long-running server you would use a proper IoC library.
  */
 
+import { AddCommentUseCase } from '@/application/use-cases/comment/AddCommentUseCase';
+import { DeleteCommentUseCase } from '@/application/use-cases/comment/DeleteCommentUseCase';
+import { ListRecipeCommentsUseCase } from '@/application/use-cases/comment/ListRecipeCommentsUseCase';
 import { CreateRecipeUseCase } from '@/application/use-cases/recipe/CreateRecipeUseCase';
 import { DeleteRecipeUseCase } from '@/application/use-cases/recipe/DeleteRecipeUseCase';
 import { GetRecipeUseCase } from '@/application/use-cases/recipe/GetRecipeUseCase';
@@ -28,6 +31,7 @@ import { UpdateRecipeUseCase } from '@/application/use-cases/recipe/UpdateRecipe
 import { GetUserProfileUseCase } from '@/application/use-cases/user/GetUserProfileUseCase';
 import { UpdateUserProfileUseCase } from '@/application/use-cases/user/UpdateUserProfileUseCase';
 
+import { PrismaCommentRepository } from './repositories/PrismaCommentRepository';
 import { PrismaRecipeRepository } from './repositories/PrismaRecipeRepository';
 import { PrismaUserRepository } from './repositories/PrismaUserRepository';
 
@@ -35,6 +39,7 @@ function buildContainer() {
   // ── Repositories ───────────────────────────────────────────────────────
   const recipeRepository = new PrismaRecipeRepository();
   const userRepository = new PrismaUserRepository();
+  const commentRepository = new PrismaCommentRepository();
 
   // ── Use cases ──────────────────────────────────────────────────────────
   return {
@@ -51,6 +56,14 @@ function buildContainer() {
     // User
     getUserProfileUseCase: new GetUserProfileUseCase(userRepository),
     updateUserProfileUseCase: new UpdateUserProfileUseCase(userRepository),
+
+    // Comment
+    addCommentUseCase: new AddCommentUseCase(commentRepository, recipeRepository),
+    deleteCommentUseCase: new DeleteCommentUseCase(commentRepository),
+    listRecipeCommentsUseCase: new ListRecipeCommentsUseCase(
+      commentRepository,
+      recipeRepository,
+    ),
   } as const;
 }
 
